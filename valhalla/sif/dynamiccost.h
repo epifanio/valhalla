@@ -1280,6 +1280,34 @@ protected:
    */
   virtual void set_use_lit(float use_lit);
 
+  /**
+   * Set the adventure-riding multiplier applied to edges tagged with
+   * TaggedValue::kAdventureRiding. Linear mapping (no curve): the user's
+   * preference value is the multiplier itself.
+   * @param use_adventure_riding value in range [0; 1] from
+   *   `Costing.Options.use_adventure_riding` (proto field 97).
+   */
+  virtual void set_use_adventure_riding(float use_adventure_riding);
+
+  /**
+   * Hot-path lookup: multiply the caller's EdgeCost factor by this when the
+   * edge sits on a curated adventure-riding network the user opted into. Returns
+   * 1.0f (no effect) when either the costing profile is neutral
+   * (`adventure_riding_factor_ >= 1.0f`) or the edge carries no
+   * `TaggedValue::kAdventureRiding` entry — guarding the EdgeInfo fetch in
+   * the steady-state case so stock requests pay zero.
+   */
+  inline float AdventureRidingMultiplier(const baldr::DirectedEdge* edge,
+                                         const baldr::graph_tile_ptr& tile) const {
+    if (adventure_riding_factor_ >= 1.0f) {
+      return 1.0f;
+    }
+    const auto& tags = tile->edgeinfo(edge).GetTags();
+    return tags.find(baldr::TaggedValue::kAdventureRiding) != tags.end()
+               ? adventure_riding_factor_
+               : 1.0f;
+  }
+
   // Algorithm pass
   uint32_t pass_;
 
@@ -1317,6 +1345,13 @@ protected:
   float closure_factor_;       // Avoid closed edges factor.
   float unlit_factor_;         // Avoid unlit edges factor.
   float speed_penalty_factor_; // Avoid faster edges than top speed factor.
+
+  // Multiplier in (0, 1] applied to edges tagged with
+  // TaggedValue::kAdventureRiding when computing EdgeCost. 1.0f = neutral
+  // (no effect); 0.5f = half cost (mild preference); 0.0f = strongest
+  // preference. Default 1.0f, overridden per-request via
+  // `Costing.Options.use_adventure_riding` (proto field 97).
+  float adventure_riding_factor_;
 
   // Transition costs
   sif::Cost country_crossing_cost_;
@@ -1469,6 +1504,13 @@ protected:
 
     // Calculate lit factor from costing options.
     set_use_lit(costing_options.use_lit());
+
+    // Adventure-riding multiplier — only override the default 1.0f if the
+    // user actually set it; the oneof wrapper distinguishes
+    // "not in request" from "intentionally 0.0".
+    if (costing_options.has_use_adventure_riding()) {
+      set_use_adventure_riding(costing_options.use_adventure_riding());
+    }
 
     // Penalty and factor to use service roads
     service_penalty_ = costing_options.service_penalty();

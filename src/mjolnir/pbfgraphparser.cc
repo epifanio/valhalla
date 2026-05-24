@@ -184,6 +184,17 @@ struct graph_parser {
     use_rest_area_ = pt.get<bool>("data_processing.use_rest_area", false);
     use_admin_db_ = pt.get<bool>("data_processing.use_admin_db", true);
 
+    // Populate the adventure-riding source allow-list from the build-time
+    // config (`mjolnir.adventure_riding_sources`). Format:
+    //   { "TET": 1, "EuroVelo": 2, "BDR": 3 }
+    // When absent the map stays empty and no ways get tagged — stock builds
+    // behave exactly as upstream Valhalla.
+    if (auto sources = pt.get_child_optional("adventure_riding_sources")) {
+      for (const auto& entry : *sources) {
+        adventure_riding_sources_[entry.first] = entry.second.get_value<uint8_t>();
+      }
+    }
+
     empty_node_tags_ = lua_.Transform(OSMType::kNode, 0, {});
     empty_relation_tags_ = lua_.Transform(OSMType::kRelation, 0, {});
 
@@ -211,8 +222,15 @@ struct graph_parser {
       way_.set_layer(layer);
     };
 
-    tag_handlers_["adventure_riding_class"] = [this]() {
-      way_.set_adventure_riding_class(static_cast<uint8_t>(to_int(tag_.second)));
+    // Lua passes through the raw OSM `source` string (e.g. "TET") as
+    // `adventure_riding_source`. We translate it to a class id here using
+    // the build-time allow-list, so opting a network in/out doesn't require
+    // a Valhalla rebuild — just a config flip.
+    tag_handlers_["adventure_riding_source"] = [this]() {
+      auto it = adventure_riding_sources_.find(tag_.second);
+      if (it != adventure_riding_sources_.end()) {
+        way_.set_adventure_riding_class(it->second);
+      }
     };
 
     tag_handlers_["road_class"] = [this]() {
@@ -5057,6 +5075,12 @@ struct graph_parser {
   // Configuration option indicating whether or not to process the admin iso code keys on the
   // nodes during the parsing phase or to get the admin info from the admin db
   bool use_admin_db_;
+
+  // Allow-list mapping OSM `source=<network>` strings (e.g. "TET", "EuroVelo")
+  // to baldr::AdventureRidingClass ids. Populated from
+  // `mjolnir.adventure_riding_sources` in the build-time config; empty when
+  // the build is not opting into adventure-riding awareness.
+  std::unordered_map<std::string, uint8_t> adventure_riding_sources_;
 
   // Road class assignment needs to be set to the highway cutoff for ferries and auto trains.
   RoadClass highway_cutoff_rc_;

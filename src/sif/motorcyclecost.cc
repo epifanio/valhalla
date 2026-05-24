@@ -445,6 +445,7 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
   }
 
   factor *= EdgeFactor(edgeid);
+  factor *= AdventureRidingMultiplier(edge, tile);
 
   return {sec * factor, sec};
 }

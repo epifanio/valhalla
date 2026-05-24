@@ -209,7 +209,7 @@ DynamicCost::DynamicCost(const Costing& costing,
       top_speed_(costing.options().top_speed()), fixed_speed_(costing.options().fixed_speed()),
       filter_closures_(ignore_closures_ ? false : costing.filter_closures()),
       penalize_uturns_(penalize_uturns), is_hgv_(costing.type() == Costing::truck),
-      min_linear_cost_factor_(1.) {
+      min_linear_cost_factor_(1.), adventure_riding_factor_(kDefaultUseAdventureRiding) {
 
   // set user supplied hierarchy limits if present, fill the other
   // required levels up with sentinel values (clamping to config supplied limits/defaults is handled
@@ -450,6 +450,10 @@ void DynamicCost::set_use_living_streets(float use_living_streets) {
 void DynamicCost::set_use_lit(float use_lit) {
   unlit_factor_ =
       use_lit < 0.5f ? kMinLitFactor + 2.f * use_lit : ((kMinLitFactor - 5.f) + 12.f * use_lit);
+}
+
+void DynamicCost::set_use_adventure_riding(float use_adventure_riding) {
+  adventure_riding_factor_ = use_adventure_riding;
 }
 
 void ParseBaseCostOptions(const rapidjson::Value& json,
