@@ -1595,6 +1595,13 @@ struct BaseCostingOptionsConfig {
   ranged_default_t<float> use_tracks_;
   ranged_default_t<float> use_living_streets_;
   ranged_default_t<float> use_lit_;
+  // Multiplier applied to the cost of edges tagged with
+  // TaggedValue::kAdventureRiding (TET / BDR / EuroVelo / …). Range [0,1]:
+  // 1.0 = neutral; <1.0 = prefer adventure-riding edges; 0.0 = strongly prefer.
+  // Read by each costing model's EdgeCost(). Default 0.5 = mild preference.
+  // (Wired but UNUSED in EdgeCost as of feat/adventure-riding scaffolding —
+  // costing logic lands in a follow-up commit; see docs/adventure-riding/PLAN.md.)
+  ranged_default_t<float> use_adventure_riding_;
 
   ranged_default_t<float> closure_factor_;
   ranged_default_t<float> speed_penalty_factor_;

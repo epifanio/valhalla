@@ -357,6 +357,17 @@ message Costing {
     oneof has_multimodal_start_end_max_distance {
       uint32 multimodal_start_end_max_distance = 96;
     }
+    // Per-profile preference for edges tagged as part of a curated
+    // adventure-riding network (TET, BDR, EuroVelo, …; see TaggedValue::
+    // kAdventureRiding in valhalla/baldr/graphconstants.h). Cost multiplier:
+    //   < 1.0  prefer (lower edge cost on adventure-riding edges)
+    //   = 1.0  neutral / default
+    //   > 1.0  avoid
+    // Stock-Valhalla tiles without the kAdventureRiding TaggedValue ignore
+    // this option and route as before. epifanio/valhalla feat/adventure-riding.
+    oneof has_use_adventure_riding {
+      float use_adventure_riding = 97;
+    }
   }
 
   oneof has_options {
