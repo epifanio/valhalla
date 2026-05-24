@@ -194,11 +194,11 @@ The augmentation script doesn't need changes — its `source=TET` tag is already
 
 | Layer | Status | Commit |
 |---|---|---|
-| 1. Constants | ✅ done | (scaffolding commit) |
-| 2. Proto schema | ✅ done | (scaffolding commit) |
-| 3. Option parsing | ✅ done | (scaffolding commit) |
-| 4. Tile-build write path | ⏳ next session | — |
-| 5. Costing read path | ⏳ next session | — |
-| 6. Tests | ⏳ next session | — |
+| 1. Constants | ✅ done | `d4018d034` |
+| 2. Proto schema | ✅ done | `d4018d034` |
+| 3. Option parsing | ✅ done | `d4018d034` |
+| 4. Tile-build write path | ✅ done | `831e5797e` |
+| 5. Costing read path + config-driven allow-list | ✅ done | `987c1db53` (+ fixup `2df0c2f55`) |
+| 6. Tests (`gurka_adventure_riding` + edgeinfo round-trip) | ⏳ next session | — |
 
-**Pick up by:** clone the fork onto the EU server, `git checkout feat/adventure-riding`, build with `cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build . -j$(nproc)`, then start Layer 4 (`lua/graph.lua` + `pbfgraphparser.cc`). The plan above has file/line targets and template references for every step.
+**Pick up by:** clone the fork onto the EU server, `git checkout feat/adventure-riding`, build with `cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -G Ninja -DENABLE_PYTHON_BINDINGS=On && cmake --build build -j$(nproc)`. Then write Layer 6 — `test/gurka/test_adventure_riding.cc` (a 3-edge mini graph proving `use_adventure_riding=0.0` swings the route from a fast road to a slow `source=TET` track) plus a unit test in `test/edgeinfo.cc` round-tripping `kAdventureRiding` through encode/decode. Build env caveats live in the server runbook at `/home/fastgis/server-runbook.md`.
