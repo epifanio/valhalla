@@ -198,7 +198,11 @@ The augmentation script doesn't need changes — its `source=TET` tag is already
 | 2. Proto schema | ✅ done | `d4018d034` |
 | 3. Option parsing | ✅ done | `d4018d034` |
 | 4. Tile-build write path | ✅ done | `831e5797e` |
-| 5. Costing read path + config-driven allow-list | ✅ done | `987c1db53` (+ fixup `2df0c2f55`) |
-| 6. Tests (`gurka_adventure_riding` + edgeinfo round-trip) | ⏳ next session | — |
+| 5. Costing read path + config-driven allow-list | ✅ done | `987c1db53` (+ `2df0c2f55`) |
+| 6. Tests (`gurka_adventure_riding` + edgeinfo round-trip) | ✅ done | `185c7efc3` (+ `af869d8f0`); EdgeInfo switch fix `cadafdd98` |
 
-**Pick up by:** clone the fork onto the EU server, `git checkout feat/adventure-riding`, build with `cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -G Ninja -DENABLE_PYTHON_BINDINGS=On && cmake --build build -j$(nproc)`. Then write Layer 6 — `test/gurka/test_adventure_riding.cc` (a 3-edge mini graph proving `use_adventure_riding=0.0` swings the route from a fast road to a slow `source=TET` track) plus a unit test in `test/edgeinfo.cc` round-tripping `kAdventureRiding` through encode/decode. Build env caveats live in the server runbook at `/home/fastgis/server-runbook.md`.
+**All six layers landed.** What remains for the wider rollout (outside the scope of this fork's plan):
+
+- **iOS/Android propagation** — point `epifanio/valhalla-mobile`'s `src/valhalla` submodule at this fork (see procedure earlier in the doc), expose `use_adventure_riding` on the Swift/Kotlin route-request wrapper.
+- **Per-country pipeline integration** — flip `mjolnir.adventure_riding_sources = {"TET": 1, …}` in the FastGIS country build configs and rebuild tiles. The `scripts/tet/*` augmentation pipeline already writes `source=TET`; no augmentation-script changes needed.
+- **Upstream rebase** — fork is currently on `Release 3.6.4` (`72f459fc5`). Rebase onto a newer upstream tag before the next iOS release if upstream has materially advanced.
