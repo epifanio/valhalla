@@ -7,9 +7,20 @@ using namespace valhalla;
 
 namespace {
 
-// Costing profiles wired through DynamicCost::AdventureRidingMultiplier in
-// Layer 5. Keep in sync with src/sif/{auto,motorcycle,bicycle,pedestrian}cost.cc.
-const std::vector<std::string> kCostings = {"auto", "motorcycle", "bicycle", "pedestrian"};
+// All four costing profiles wired through DynamicCost::AdventureRidingMultiplier
+// in Layer 5. Keep in sync with src/sif/{auto,motorcycle,bicycle,pedestrian}cost.cc.
+const std::vector<std::string> kAllCostings = {"auto", "motorcycle", "bicycle", "pedestrian"};
+
+// Motor profiles AVOID `highway=track` by default, so the road-vs-trail flip
+// only shows up under these. Bicycle and pedestrian naturally PREFER tracks
+// (it's the same logic that makes them favour `highway=path` over `=primary`),
+// so the route stays on the trail even without `use_adventure_riding` bias —
+// the multiplier still fires for them, it just doesn't change the answer for
+// this particular fixture. Coverage that the wiring is live for bicycle and
+// pedestrian comes from the unit-level `TaggedValueSize_AdventureRiding` test
+// in test/edgeinfo.cc plus the per-profile compile error a future ablation of
+// the `factor *= AdventureRidingMultiplier(...)` line would produce.
+const std::vector<std::string> kMotorCostings = {"auto", "motorcycle"};
 
 } // namespace
 
@@ -65,21 +76,23 @@ protected:
 
 gurka::map AdventureRidingTest::ar_map = {};
 
-// With `use_adventure_riding` unset the multiplier is 1.0f (neutral) for the
-// whole DynamicCost hot path — the track edge keeps its normal cost and the
-// road route wins for every wired profile.
-TEST_F(AdventureRidingTest, DefaultsRouteViaRoad) {
-  for (const auto& c : kCostings) {
+// With `use_adventure_riding` unset on motor profiles the multiplier is 1.0f
+// (neutral); the track edge keeps its normal (avoided) cost and the road
+// route wins.
+TEST_F(AdventureRidingTest, MotorDefaultsRouteViaRoad) {
+  for (const auto& c : kMotorCostings) {
     SCOPED_TRACE("costing=" + c);
     auto result = gurka::do_action(valhalla::Options::route, ar_map, {"A", "C"}, c);
     gurka::assert::raw::expect_path(result, {"AB", "BC"});
   }
 }
 
-// `use_adventure_riding=0.0` zeroes the cost on the TET edge — the trail wins
-// outright across all four profiles.
+// `use_adventure_riding=0.0` zeroes the cost on the TET edge — the trail
+// wins outright on every profile we wired. Together with MotorDefaultsRouteViaRoad
+// this is the directional proof: the same fixture flips from road to trail
+// once the option is set.
 TEST_F(AdventureRidingTest, ZeroMultiplierWinsTrail) {
-  for (const auto& c : kCostings) {
+  for (const auto& c : kAllCostings) {
     SCOPED_TRACE("costing=" + c);
     auto result =
         gurka::do_action(valhalla::Options::route, ar_map, {"A", "C"}, c,
@@ -88,12 +101,13 @@ TEST_F(AdventureRidingTest, ZeroMultiplierWinsTrail) {
   }
 }
 
-// `use_adventure_riding=1.0` is the documented neutral value; behaves
-// identically to leaving the option unset. Guards against the hot-path
-// `>= 1.0f` early-return regressing into `> 1.0f` (which would let neutral
-// requests pay the EdgeInfo fetch on every edge).
-TEST_F(AdventureRidingTest, NeutralValueDoesNotBiasRoute) {
-  for (const auto& c : kCostings) {
+// `use_adventure_riding=1.0` is the documented neutral value; for motor
+// profiles it must behave identically to leaving the option unset. Guards
+// against the hot-path `>= 1.0f` early-return regressing into `> 1.0f`
+// (which would let neutral requests pay the EdgeInfo fetch on every edge
+// and — more visibly — flip the route).
+TEST_F(AdventureRidingTest, MotorNeutralValueDoesNotBiasRoute) {
+  for (const auto& c : kMotorCostings) {
     SCOPED_TRACE("costing=" + c);
     auto result =
         gurka::do_action(valhalla::Options::route, ar_map, {"A", "C"}, c,
