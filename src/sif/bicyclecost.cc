@@ -717,6 +717,7 @@ Cost BicycleCost::EdgeCost(const baldr::DirectedEdge* edge,
                              0.5f);
 
   factor *= EdgeFactor(edgeid);
+  factor *= AdventureRidingMultiplier(edge, tile);
 
   // Compute elapsed time based on speed. Modulate cost with weighting factors.
   float sec = (edge->length() * kSpeedFactor[bike_speed]);
