@@ -118,6 +118,7 @@ size_t EdgeInfo::TaggedValueSize(const char* ptr) {
     case TaggedValue::kLevelRef:
     case TaggedValue::kTunnel:
     case TaggedValue::kBridge:
+    case TaggedValue::kAdventureRiding:
       // These are null-terminated strings after the tag byte
       return strlen(ptr) + 1; // +1 for null terminator
 
@@ -636,6 +637,11 @@ void EdgeInfo::json(rapidjson::writer_wrapper_t& writer) const {
       case TaggedValue::kTunnel:
         break;
       case TaggedValue::kBridge:
+        break;
+      case TaggedValue::kAdventureRiding:
+        // Surface the network class id in tile-dump JSON so downstream
+        // tooling can introspect which curated network an edge belongs to.
+        writer("adventure_riding_class", static_cast<uint64_t>(value[0]));
         break;
     }
   }
