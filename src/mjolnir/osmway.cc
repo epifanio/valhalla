@@ -159,6 +159,10 @@ void OSMWay::set_layer(int8_t layer) {
   layer_ = layer;
 }
 
+void OSMWay::set_adventure_riding_class(uint8_t cls) {
+  adventure_riding_class_ = cls;
+}
+
 void OSMWay::AddPronunciationsWithLang(std::vector<std::string>& pronunciations,
                                        std::map<size_t, baldr::Language>& lang_map,
                                        const baldr::PronunciationAlphabet verbal_type,
@@ -1107,6 +1111,11 @@ void OSMWay::GetTaggedValues(const UniqueNames& name_offset_map,
 
   if (layer_ != 0) {
     names.emplace_back(encode_tag(TaggedValue::kLayer) + static_cast<char>(layer_));
+  }
+
+  if (adventure_riding_class_ != 0) {
+    names.emplace_back(encode_tag(TaggedValue::kAdventureRiding) +
+                       static_cast<char>(adventure_riding_class_));
   }
 
   if (level_index_ != 0) {

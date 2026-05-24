@@ -2436,6 +2436,22 @@ struct OSMWay {
   }
 
   /**
+   * Sets the adventure-riding network class for the way. 0 = none; see
+   * baldr::AdventureRidingClass for class ids. Persisted to EdgeInfo via
+   * TaggedValue::kAdventureRiding so the costing read path can bias routes
+   * toward (or away from) curated off-road networks (TET, EuroVelo, BDR, …).
+   */
+  void set_adventure_riding_class(uint8_t cls);
+
+  /**
+   * Get the adventure-riding network class for the way.
+   * @return 0 if the way is not part of any adventure-riding network.
+   */
+  uint8_t adventure_riding_class() const {
+    return adventure_riding_class_;
+  }
+
+  /**
    * Sets the index for level
    * @param  idx  Index for the level.
    */
@@ -2732,6 +2748,9 @@ struct OSMWay {
 
   // layer index(Z-level) of the way relatively to other levels
   int8_t layer_;
+
+  // adventure-riding network class (0 = none; see baldr::AdventureRidingClass)
+  uint8_t adventure_riding_class_{0};
 };
 
 } // namespace mjolnir
