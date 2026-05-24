@@ -211,6 +211,10 @@ struct graph_parser {
       way_.set_layer(layer);
     };
 
+    tag_handlers_["adventure_riding_class"] = [this]() {
+      way_.set_adventure_riding_class(static_cast<uint8_t>(to_int(tag_.second)));
+    };
+
     tag_handlers_["road_class"] = [this]() {
       RoadClass roadclass = (RoadClass)to_int(tag_.second);
       switch (roadclass) {

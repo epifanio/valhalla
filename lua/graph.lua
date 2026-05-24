@@ -1539,6 +1539,14 @@ function filter_tags_generic(kv)
        end
   end
 
+   -- Derive adventure-riding network class from source=<network> BEFORE the
+   -- tag is stripped by delete_tags below. See baldr::AdventureRidingClass
+   -- for ids. TODO(Layer 5): drive this mapping from valhalla.json's
+   -- mjolnir.adventure_riding_sources instead of hardcoding here.
+   if kv["source"] == "TET" then
+      kv["adventure_riding_class"] = "1"
+   end
+
    delete_tags = { 'FIXME', 'note', 'source' }
    for i,k in ipairs(delete_tags) do
       kv[k] = nil
