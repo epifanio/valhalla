@@ -99,6 +99,12 @@ constexpr float kDefaultUseRailFerry = 0.4f;     // Default preference of using 
 constexpr float kDefaultUseTracks = 0.5f;        // Default preference of using tracks 0-1
 constexpr float kDefaultUseLivingStreets = 0.1f; // Default preference of using living streets 0-1
 constexpr float kDefaultUseLit = 0.f;            // Default preference of using lit ways 0-1
+// Default preference of using adventure-riding networks (TET, BDR, EuroVelo, …)
+// when the underlying tiles carry the TaggedValue::kAdventureRiding tag.
+// 1.0 = neutral; 0.5 = mild preference. Each profile may override (e.g.,
+// motorcycle should default lower, auto/truck higher to avoid). Costing
+// implementation lands in a follow-up commit — see docs/adventure-riding/PLAN.md.
+constexpr float kDefaultUseAdventureRiding = 1.0f;
 
 // How much to avoid generic service roads.
 constexpr float kDefaultServiceFactor = 1.0f;
@@ -175,6 +181,7 @@ BaseCostingOptionsConfig::BaseCostingOptionsConfig()
                                                                                   kDefaultUseTracks,
                                                                                   1.f},
       use_living_streets_{0.f, kDefaultUseLivingStreets, 1.f}, use_lit_{0.f, kDefaultUseLit, 1.f},
+      use_adventure_riding_{0.f, kDefaultUseAdventureRiding, 1.f},
       closure_factor_{kClosureFactorRange}, speed_penalty_factor_{kSpeedPenaltyFactorRange},
       exclude_unpaved_(false), exclude_bridges_(false), exclude_tunnels_(false),
       exclude_tolls_(false), exclude_highways_(false), exclude_ferries_(false), has_excludes_(false),
@@ -592,6 +599,12 @@ void ParseBaseCostOptions(const rapidjson::Value& json,
 
   // use_lit
   JSON_PBF_RANGED_DEFAULT_V2(co, cfg.use_lit_, json, "/use_lit", use_lit, warnings);
+
+  // use_adventure_riding — multiplier for edges with TaggedValue::kAdventureRiding.
+  // Wired into the request/option plumbing here; no EdgeCost effect yet (deferred
+  // to the costing-layer commit, see docs/adventure-riding/PLAN.md).
+  JSON_PBF_RANGED_DEFAULT(co, cfg.use_adventure_riding_, json, "/use_adventure_riding",
+                          use_adventure_riding, warnings);
 
   // closure_factor
   JSON_PBF_RANGED_DEFAULT(co, cfg.closure_factor_, json, "/closure_factor", closure_factor, warnings);

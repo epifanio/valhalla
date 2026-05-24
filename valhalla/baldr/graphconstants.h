@@ -407,10 +407,37 @@ enum class TaggedValue : uint8_t { // must start at 1 due to nulls
   kConditionalSpeedLimits = 7,
   kLevels = 8,
   kOSMNodeIds = 9,
+  // ──────────────────────────────────────────────────────────────────────────
+  // Adventure-riding extension (epifanio/valhalla feat/adventure-riding).
+  //
+  // Per-edge tag that marks the directed edge as part of a *curated* off-road
+  // riding network (TET, BDR, EuroVelo, user-uploaded routes, …). Tag payload
+  // is a single byte holding the network class id (1=TET, 2=EuroVelo, …),
+  // populated by the graph builder from an OSM `source=<network>` tag via a
+  // configurable allow-list. Costing models read it via EdgeInfo::GetTags()
+  // and apply the per-profile `use_adventure_riding` multiplier.
+  //
+  // Stock-Valhalla tilesets WITHOUT this tag fall through to default cost,
+  // so the change is forward-compatible with vanilla tile consumers — but a
+  // tile rebuild is required for tilesets that should reward these networks.
+  // ──────────────────────────────────────────────────────────────────────────
+  kAdventureRiding = 10,
   // we used to have bug when we encoded 1 and 2 as their ASCII codes, but not actual 1 and 2 values
   // see https://github.com/valhalla/valhalla/issues/3262
   kTunnel = static_cast<uint8_t>('1'),
   kBridge = static_cast<uint8_t>('2'),
+};
+
+// Adventure-riding network classes packed into the kAdventureRiding tag's
+// 1-byte payload. 0 is reserved (= "none"); add new networks here. Up to 255
+// classes are addressable. Keep the mapping in sync with the tile-build
+// configuration that maps OSM `source=*` values onto these classes.
+enum class AdventureRidingClass : uint8_t {
+  kNone     = 0,
+  kTet      = 1, // Trans European Trail — https://transeurotrail.org
+  kEuroVelo = 2, // EuroVelo cycle routes
+  kBdr      = 3, // Backcountry Discovery Routes (US)
+  // expand as needed; values reserved for future thematic networks
 };
 
 enum class PronunciationAlphabet : uint8_t {
