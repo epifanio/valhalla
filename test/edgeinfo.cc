@@ -115,6 +115,24 @@ TEST(EdgeInfo, TaggedValueSize_Layer) {
   EXPECT_EQ(size, tagged_value.size()) << "TaggedValueSize should match actual size";
 }
 
+TEST(EdgeInfo, TaggedValueSize_AdventureRiding) {
+  // AdventureRiding: tag byte + class id (single byte) + null terminator —
+  // same shape as kLayer. Regression-guard that the kAdventureRiding case in
+  // EdgeInfo::TaggedValueSize is wired up; without it the function throws
+  // `std::runtime_error("Unknown tag type: 10")` the first time a tile
+  // contains the tag (which happens on every PBF built with a non-empty
+  // `mjolnir.adventure_riding_sources` allow-list).
+  std::string tagged_value;
+  tagged_value += static_cast<char>(TaggedValue::kAdventureRiding);
+  tagged_value += static_cast<char>(static_cast<uint8_t>(AdventureRidingClass::kTet));
+  tagged_value += '\0';
+
+  size_t size = EdgeInfo::TaggedValueSize(tagged_value.data());
+
+  EXPECT_EQ(size, 3) << "AdventureRiding tagged value should be 3 bytes (tag + class + null)";
+  EXPECT_EQ(size, tagged_value.size()) << "TaggedValueSize should match actual size";
+}
+
 TEST(EdgeInfo, TaggedValueSize_Tunnel) {
   // Tunnel: tag byte + tunnel name + null terminator
   std::string tunnel_name = "Fort McHenry Tunnel";
