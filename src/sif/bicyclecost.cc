@@ -623,7 +623,7 @@ bool BicycleCost::AllowedReverse(const baldr::DirectedEdge* edge,
 // (in seconds) to traverse the edge.
 Cost BicycleCost::EdgeCost(const baldr::DirectedEdge* edge,
                            const baldr::GraphId& edgeid,
-                           const graph_tile_ptr&,
+                           const graph_tile_ptr& tile,
                            const baldr::TimeInfo&,
                            uint8_t&) const {
   // Stairs/steps - high cost (travel speed = 1kph) so they are generally avoided.
