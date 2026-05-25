@@ -143,11 +143,15 @@ TEST_F(AdventureRidingTest, CurveDoesNotChangeBiasOneOrZero) {
   }
 }
 
-// `pow(0.5, curve)` should be small enough at curve≥3 to flip the route to
-// the trail on this fixture, where linear bias=0.5 alone leaves it on road
-// (the trail's `track_factor_` boost vs road dominates a 0.5 multiplier).
-// This is the *whole point* of the curve knob: let riders express partial
-// preference and have it actually move the needle.
+// `pow(bias, curve)` should be small enough at high curve to flip the route
+// to the trail on this fixture, where linear bias=0.5 alone leaves it on
+// road (the gurka 3-edge fixture has a very high default `track_factor_`
+// vs primary/secondary road cost — empirically `pow(0.5, 5) = 0.03` still
+// isn't enough; we need curve=10 → pow(0.5, 10) ≈ 0.001 to clear the bar).
+// On real OSM data the trail/road cost ratio is much smaller, so curve=3-5
+// produces meaningful gradient flips at bias=0.5. This is the *whole point*
+// of the curve knob: let riders express partial preference and have it
+// actually move the needle.
 TEST_F(AdventureRidingTest, CurveAmplifiesIntermediateBias) {
   for (const auto& c : kMotorCostings) {
     SCOPED_TRACE("costing=" + c);
@@ -157,12 +161,12 @@ TEST_F(AdventureRidingTest, CurveAmplifiesIntermediateBias) {
         valhalla::Options::route, ar_map, {"A", "C"}, c,
         {{"/costing_options/" + c + "/use_adventure_riding", "0.5"}});
     gurka::assert::raw::expect_path(road, {"AB", "BC"});
-    // bias=0.5 with curve=5 → effective ≈ 0.03125, comfortably below the
+    // bias=0.5 with curve=10 → effective ≈ 0.001, comfortably below the
     // trail-vs-road flip threshold for this fixture → trail wins.
     auto trail = gurka::do_action(
         valhalla::Options::route, ar_map, {"A", "C"}, c,
         {{"/costing_options/" + c + "/use_adventure_riding", "0.5"},
-         {"/costing_options/" + c + "/use_adventure_riding_curve", "5"}});
+         {"/costing_options/" + c + "/use_adventure_riding_curve", "10"}});
     gurka::assert::raw::expect_path(trail, {"AC"});
   }
 }
