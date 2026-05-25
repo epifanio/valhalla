@@ -368,6 +368,18 @@ message Costing {
     oneof has_use_adventure_riding {
       float use_adventure_riding = 97;
     }
+    // Companion to `use_adventure_riding`: exponent applied to the user's
+    // bias value before it multiplies the edge cost on adventure-riding
+    // tagged edges. effective_multiplier = pow(use_adventure_riding,
+    // use_adventure_riding_curve). curve=1.0 (default) is linear. curve>1
+    // makes intermediate bias values more aggressive: with curve=3,
+    // bias=0.5 acts like bias≈0.125. Useful because real OSM trail/road
+    // cost ratios are typically large enough that linear bias=0.5 leaves
+    // trail cost still above road. Range [0.1, 10.0]; clamped on the
+    // service side per ranged_default_t.
+    oneof has_use_adventure_riding_curve {
+      float use_adventure_riding_curve = 98;
+    }
   }
 
   oneof has_options {

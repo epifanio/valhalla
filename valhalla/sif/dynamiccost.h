@@ -22,6 +22,7 @@
 #include <boost/container/small_vector.hpp>
 #include <proto/info.pb.h>
 
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -1505,11 +1506,29 @@ protected:
     // Calculate lit factor from costing options.
     set_use_lit(costing_options.use_lit());
 
-    // Adventure-riding multiplier — only override the default 1.0f if the
-    // user actually set it; the oneof wrapper distinguishes
-    // "not in request" from "intentionally 0.0".
-    if (costing_options.has_use_adventure_riding()) {
-      set_use_adventure_riding(costing_options.use_adventure_riding());
+    // Adventure-riding multiplier with optional curve.
+    //
+    // We collapse bias + curve into a single effective multiplier here, ONCE,
+    // so the EdgeCost hot path (AdventureRidingMultiplier) stays bitwise
+    // identical to the linear-only version and the curve is invisible there.
+    // The early-return `>= 1.0f` short-circuit in the hot path also stays
+    // correct: with bias=1.0 the effective multiplier is 1.0 regardless of
+    // curve, and an unset bias defaults to 1.0.
+    //
+    // Trip the recompute if EITHER side of the request set anything — that
+    // way curve=3 with default bias still no-ops, and bias=0.5 with default
+    // curve=1 still works exactly as before.
+    if (costing_options.has_use_adventure_riding() ||
+        costing_options.has_use_adventure_riding_curve()) {
+      const float bias = costing_options.has_use_adventure_riding()
+                             ? costing_options.use_adventure_riding()
+                             : kDefaultUseAdventureRiding;
+      const float curve = costing_options.has_use_adventure_riding_curve()
+                              ? costing_options.use_adventure_riding_curve()
+                              : kDefaultUseAdventureRidingCurve;
+      // Neutral bias short-circuits the pow() AND keeps the hot-path early
+      // return cheap when only the curve was set.
+      set_use_adventure_riding(bias >= 1.0f ? 1.0f : std::pow(bias, curve));
     }
 
     // Penalty and factor to use service roads
@@ -1644,6 +1663,7 @@ struct BaseCostingOptionsConfig {
   // (Wired but UNUSED in EdgeCost as of feat/adventure-riding scaffolding —
   // costing logic lands in a follow-up commit; see docs/adventure-riding/PLAN.md.)
   ranged_default_t<float> use_adventure_riding_;
+  ranged_default_t<float> use_adventure_riding_curve_;
 
   ranged_default_t<float> closure_factor_;
   ranged_default_t<float> speed_penalty_factor_;
