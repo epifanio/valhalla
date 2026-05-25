@@ -115,3 +115,54 @@ TEST_F(AdventureRidingTest, MotorNeutralValueDoesNotBiasRoute) {
     gurka::assert::raw::expect_path(result, {"AB", "BC"});
   }
 }
+
+// `use_adventure_riding_curve` should let intermediate bias values become
+// more aggressive without changing the bias=0 or bias=1 endpoints. The fork
+// applies `effective = pow(bias, curve)` once at DynamicCost construction
+// and stores it as `adventure_riding_factor_`, so the EdgeCost hot path
+// stays bitwise identical to the legacy linear case — this test just pins
+// down the two endpoint invariants and one intermediate equivalence.
+TEST_F(AdventureRidingTest, CurveDoesNotChangeBiasOneOrZero) {
+  // bias=1.0 with any curve must remain neutral (road).
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c + " bias=1 curve=5");
+    auto result = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "1"},
+         {"/costing_options/" + c + "/use_adventure_riding_curve", "5"}});
+    gurka::assert::raw::expect_path(result, {"AB", "BC"});
+  }
+  // bias=0.0 with any curve must still saturate to trail.
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c + " bias=0 curve=5");
+    auto result = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0"},
+         {"/costing_options/" + c + "/use_adventure_riding_curve", "5"}});
+    gurka::assert::raw::expect_path(result, {"AC"});
+  }
+}
+
+// `pow(0.5, curve)` should be small enough at curve≥3 to flip the route to
+// the trail on this fixture, where linear bias=0.5 alone leaves it on road
+// (the trail's `track_factor_` boost vs road dominates a 0.5 multiplier).
+// This is the *whole point* of the curve knob: let riders express partial
+// preference and have it actually move the needle.
+TEST_F(AdventureRidingTest, CurveAmplifiesIntermediateBias) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    // bias=0.5 alone → road (proven by MotorNeutralValueDoesNotBiasRoute
+    // baseline shape; here we re-pin it as a control for the comparison)
+    auto road = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0.5"}});
+    gurka::assert::raw::expect_path(road, {"AB", "BC"});
+    // bias=0.5 with curve=5 → effective ≈ 0.03125, comfortably below the
+    // trail-vs-road flip threshold for this fixture → trail wins.
+    auto trail = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0.5"},
+         {"/costing_options/" + c + "/use_adventure_riding_curve", "5"}});
+    gurka::assert::raw::expect_path(trail, {"AC"});
+  }
+}

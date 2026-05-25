@@ -105,6 +105,11 @@ constexpr float kDefaultUseLit = 0.f;            // Default preference of using 
 // motorcycle should default lower, auto/truck higher to avoid). Costing
 // implementation lands in a follow-up commit — see docs/adventure-riding/PLAN.md.
 constexpr float kDefaultUseAdventureRiding = 1.0f;
+// Default exponent for the use_adventure_riding curve. 1.0 = linear (legacy
+// behaviour). >1.0 = steeper (small bias values become more aggressive),
+// useful because the trail/road cost ratio in real OSM data is typically
+// large enough that linear bias=0.5 still leaves trail > road.
+constexpr float kDefaultUseAdventureRidingCurve = 1.0f;
 
 // How much to avoid generic service roads.
 constexpr float kDefaultServiceFactor = 1.0f;
@@ -182,6 +187,7 @@ BaseCostingOptionsConfig::BaseCostingOptionsConfig()
                                                                                   1.f},
       use_living_streets_{0.f, kDefaultUseLivingStreets, 1.f}, use_lit_{0.f, kDefaultUseLit, 1.f},
       use_adventure_riding_{0.f, kDefaultUseAdventureRiding, 1.f},
+      use_adventure_riding_curve_{0.1f, kDefaultUseAdventureRidingCurve, 10.f},
       closure_factor_{kClosureFactorRange}, speed_penalty_factor_{kSpeedPenaltyFactorRange},
       exclude_unpaved_(false), exclude_bridges_(false), exclude_tunnels_(false),
       exclude_tolls_(false), exclude_highways_(false), exclude_ferries_(false), has_excludes_(false),
@@ -609,6 +615,14 @@ void ParseBaseCostOptions(const rapidjson::Value& json,
   // to the costing-layer commit, see docs/adventure-riding/PLAN.md).
   JSON_PBF_RANGED_DEFAULT(co, cfg.use_adventure_riding_, json, "/use_adventure_riding",
                           use_adventure_riding, warnings);
+  // use_adventure_riding_curve — exponent applied to use_adventure_riding before
+  // it multiplies the EdgeCost factor on kAdventureRiding-tagged edges.
+  // Applied once at DynamicCost construction time (see dynamiccost.h
+  // get_base_costs), so the EdgeCost hot path stays bitwise identical to the
+  // linear (curve=1.0) case for stock requests.
+  JSON_PBF_RANGED_DEFAULT(co, cfg.use_adventure_riding_curve_, json,
+                          "/use_adventure_riding_curve",
+                          use_adventure_riding_curve, warnings);
 
   // closure_factor
   JSON_PBF_RANGED_DEFAULT(co, cfg.closure_factor_, json, "/closure_factor", closure_factor, warnings);
