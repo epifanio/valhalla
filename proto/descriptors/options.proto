@@ -380,6 +380,21 @@ message Costing {
     oneof has_use_adventure_riding_curve {
       float use_adventure_riding_curve = 98;
     }
+    // Per-request rider skill modifier for adventure-riding edges.
+    // Multiplies the OSM-tagged speed on edges carrying the
+    // `TaggedValue::kAdventureRiding` tag, so a less-skilled rider routes
+    // (and is told their ETA) as if the trail were slower, and a more
+    // experienced rider as if it were faster. 1.0 (default) = use the
+    // tagged speed verbatim. 0.5 = takes 2× as long as the average rider.
+    // 1.5 = takes 2/3 the time. Affects BOTH the cost (since cost depends
+    // on time) and the reported `trip.summary.time`, so it shapes both
+    // routing choice and ETA. Independent from `use_adventure_riding`
+    // (which scales cost only, not time). Stock-Valhalla tiles without
+    // the kAdventureRiding TaggedValue ignore this option. Range
+    // [0.3, 3.0]; clamped via ranged_default_t.
+    oneof has_adventure_riding_speed_factor {
+      float adventure_riding_speed_factor = 99;
+    }
   }
 
   oneof has_options {

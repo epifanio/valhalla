@@ -751,6 +751,9 @@ Cost PedestrianCost::EdgeCost(const baldr::DirectedEdge* edge,
   float sec = edge->length() * speedfactor_ *
               kSacScaleSpeedFactor[static_cast<uint8_t>(edge->sac_scale())] *
               kGradeBasedSpeedFactor[static_cast<uint8_t>(edge->weighted_grade())];
+  // Rider-skill speed scaler on adventure-riding edges. No-op early return
+  // when the rider hasn't requested a change.
+  sec /= AdventureRidingSpeedMultiplier(edge, tile);
 
   if (shortest_) {
     return Cost(edge->length(), sec);

@@ -143,6 +143,11 @@ TEST_F(AdventureRidingTest, CurveDoesNotChangeBiasOneOrZero) {
   }
 }
 
+// Helper: pull the leg.summary().time() out of a route response.
+static float leg_time_sec(const valhalla::Api& route) {
+  return route.directions().routes(0).legs(0).summary().time();
+}
+
 // `pow(bias, curve)` should be small enough at high curve to flip the route
 // to the trail on this fixture, where linear bias=0.5 alone leaves it on
 // road (the gurka 3-edge fixture has a very high default `track_factor_`
@@ -168,5 +173,60 @@ TEST_F(AdventureRidingTest, CurveAmplifiesIntermediateBias) {
         {{"/costing_options/" + c + "/use_adventure_riding", "0.5"},
          {"/costing_options/" + c + "/use_adventure_riding_curve", "10"}});
     gurka::assert::raw::expect_path(trail, {"AC"});
+  }
+}
+
+// `adventure_riding_speed_factor` should scale the wall-clock time of the
+// AC trail edge linearly: 0.5 ⇒ ~2× time, 2.0 ⇒ ~0.5× time, with no
+// effect on route choice (we fix bias=0 so the trail is taken regardless).
+// Uses LE / GE bounds rather than tight NEAR because Valhalla's time
+// computation includes some non-multiplicative factors (transition costs,
+// rounding to integer seconds) that this fixture exercises.
+TEST_F(AdventureRidingTest, SpeedFactorScalesTrailTime) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    auto baseline = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0"}});
+    gurka::assert::raw::expect_path(baseline, {"AC"});
+    const float t_base = leg_time_sec(baseline);
+    ASSERT_GT(t_base, 0.5f);  // sanity: trail time exists
+
+    // Cautious rider — half the speed → at least 1.8× the baseline time.
+    auto cautious = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0"},
+         {"/costing_options/" + c + "/adventure_riding_speed_factor", "0.5"}});
+    gurka::assert::raw::expect_path(cautious, {"AC"});
+    EXPECT_GE(leg_time_sec(cautious), 1.8f * t_base);
+
+    // Fast rider — 2× speed → at most 0.7× the baseline time.
+    auto fast = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0"},
+         {"/costing_options/" + c + "/adventure_riding_speed_factor", "2.0"}});
+    gurka::assert::raw::expect_path(fast, {"AC"});
+    EXPECT_LE(leg_time_sec(fast), 0.7f * t_base);
+  }
+}
+
+// Speed factor must NOT touch wall-clock time on non-AR edges. The road
+// route A->B->C carries no kAdventureRiding tag, so changing the rider
+// skill should leave its time bit-identical.
+TEST_F(AdventureRidingTest, SpeedFactorDoesNotAffectRoadEdges) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    // Default route is road (bias unset, neutral); compute time once.
+    auto road = gurka::do_action(valhalla::Options::route, ar_map, {"A", "C"}, c);
+    gurka::assert::raw::expect_path(road, {"AB", "BC"});
+    const float t_road = leg_time_sec(road);
+
+    // Same route, half-speed rider — but no AR tag on road edges, so the
+    // multiplier early-returns to 1.0 and the time is unchanged.
+    auto cautious_road = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/adventure_riding_speed_factor", "0.5"}});
+    gurka::assert::raw::expect_path(cautious_road, {"AB", "BC"});
+    EXPECT_EQ(leg_time_sec(cautious_road), t_road);
   }
 }
