@@ -110,6 +110,13 @@ constexpr float kDefaultUseAdventureRiding = 1.0f;
 // useful because the trail/road cost ratio in real OSM data is typically
 // large enough that linear bias=0.5 still leaves trail > road.
 constexpr float kDefaultUseAdventureRidingCurve = 1.0f;
+// Default rider-skill multiplier for adventure-riding edge speed. 1.0 means
+// use the OSM-tagged speed verbatim (the "average rider" baseline). <1
+// slows the rider down on trail edges (cautious / less skilled), >1 speeds
+// them up. Bounded below 0.3 because dropping speed below 30% of nominal
+// makes very long trail traversals routing-pathological; bounded above 3.0
+// because nothing is faster than that on grade3 forestry road in practice.
+constexpr float kDefaultAdventureRidingSpeedFactor = 1.0f;
 
 // How much to avoid generic service roads.
 constexpr float kDefaultServiceFactor = 1.0f;
@@ -188,6 +195,7 @@ BaseCostingOptionsConfig::BaseCostingOptionsConfig()
       use_living_streets_{0.f, kDefaultUseLivingStreets, 1.f}, use_lit_{0.f, kDefaultUseLit, 1.f},
       use_adventure_riding_{0.f, kDefaultUseAdventureRiding, 1.f},
       use_adventure_riding_curve_{0.1f, kDefaultUseAdventureRidingCurve, 10.f},
+      adventure_riding_speed_factor_{0.3f, kDefaultAdventureRidingSpeedFactor, 3.f},
       closure_factor_{kClosureFactorRange}, speed_penalty_factor_{kSpeedPenaltyFactorRange},
       exclude_unpaved_(false), exclude_bridges_(false), exclude_tunnels_(false),
       exclude_tolls_(false), exclude_highways_(false), exclude_ferries_(false), has_excludes_(false),
@@ -215,7 +223,8 @@ DynamicCost::DynamicCost(const Costing& costing,
       top_speed_(costing.options().top_speed()), fixed_speed_(costing.options().fixed_speed()),
       filter_closures_(ignore_closures_ ? false : costing.filter_closures()),
       penalize_uturns_(penalize_uturns), is_hgv_(costing.type() == Costing::truck),
-      min_linear_cost_factor_(1.), adventure_riding_factor_(kDefaultUseAdventureRiding) {
+      min_linear_cost_factor_(1.), adventure_riding_factor_(kDefaultUseAdventureRiding),
+      adventure_riding_speed_factor_(kDefaultAdventureRidingSpeedFactor) {
 
   // set user supplied hierarchy limits if present, fill the other
   // required levels up with sentinel values (clamping to config supplied limits/defaults is handled
@@ -623,6 +632,12 @@ void ParseBaseCostOptions(const rapidjson::Value& json,
   JSON_PBF_RANGED_DEFAULT(co, cfg.use_adventure_riding_curve_, json,
                           "/use_adventure_riding_curve",
                           use_adventure_riding_curve, warnings);
+  // adventure_riding_speed_factor — rider-skill speed scaler on AR edges.
+  // Applied in EdgeCost (scales `sec` directly) so it affects BOTH cost
+  // and the reported ETA. Hot-path early return when default 1.0.
+  JSON_PBF_RANGED_DEFAULT(co, cfg.adventure_riding_speed_factor_, json,
+                          "/adventure_riding_speed_factor",
+                          adventure_riding_speed_factor, warnings);
 
   // closure_factor
   JSON_PBF_RANGED_DEFAULT(co, cfg.closure_factor_, json, "/closure_factor", closure_factor, warnings);

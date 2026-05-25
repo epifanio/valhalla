@@ -1309,6 +1309,24 @@ protected:
                : 1.0f;
   }
 
+  /**
+   * Mirror of `AdventureRidingMultiplier` for the rider-skill speed factor.
+   * EdgeCost callers do `sec /= AdventureRidingSpeedMultiplier(edge, tile);`
+   * so a factor of 0.5 doubles `sec` (slower rider), 2.0 halves it (faster),
+   * and 1.0 (the default) is a no-op early-return that doesn't even fetch
+   * EdgeInfo.
+   */
+  inline float AdventureRidingSpeedMultiplier(const baldr::DirectedEdge* edge,
+                                              const baldr::graph_tile_ptr& tile) const {
+    if (adventure_riding_speed_factor_ == 1.0f) {
+      return 1.0f;
+    }
+    const auto& tags = tile->edgeinfo(edge).GetTags();
+    return tags.find(baldr::TaggedValue::kAdventureRiding) != tags.end()
+               ? adventure_riding_speed_factor_
+               : 1.0f;
+  }
+
   // Algorithm pass
   uint32_t pass_;
 
@@ -1351,8 +1369,19 @@ protected:
   // TaggedValue::kAdventureRiding when computing EdgeCost. 1.0f = neutral
   // (no effect); 0.5f = half cost (mild preference); 0.0f = strongest
   // preference. Default 1.0f, overridden per-request via
-  // `Costing.Options.use_adventure_riding` (proto field 97).
+  // `Costing.Options.use_adventure_riding` (proto field 97). When the
+  // companion `use_adventure_riding_curve` (field 98) is set the stored
+  // value is `pow(bias, curve)` — the EdgeCost hot path doesn't see the
+  // curve, just the collapsed effective multiplier.
   float adventure_riding_factor_;
+
+  // Rider-skill speed multiplier on edges tagged with
+  // TaggedValue::kAdventureRiding. 1.0 = use OSM-tagged speed verbatim
+  // (default); <1 slower (cautious / less-skilled rider); >1 faster.
+  // Applied to `sec` in each profile's EdgeCost so both cost AND reported
+  // ETA reflect the rider. Overridden per-request via
+  // `Costing.Options.adventure_riding_speed_factor` (proto field 99).
+  float adventure_riding_speed_factor_;
 
   // Transition costs
   sif::Cost country_crossing_cost_;
@@ -1539,6 +1568,12 @@ protected:
       set_use_adventure_riding(bias >= 1.0f ? 1.0f : std::pow(bias, curve));
     }
 
+    // Rider-skill speed scaler on adventure-riding edges. Same pattern as
+    // the bias above — only overwrite the default 1.0 if the user set it.
+    if (costing_options.has_adventure_riding_speed_factor()) {
+      adventure_riding_speed_factor_ = costing_options.adventure_riding_speed_factor();
+    }
+
     // Penalty and factor to use service roads
     service_penalty_ = costing_options.service_penalty();
     service_factor_ = costing_options.service_factor();
@@ -1672,6 +1707,7 @@ struct BaseCostingOptionsConfig {
   // costing logic lands in a follow-up commit; see docs/adventure-riding/PLAN.md.)
   ranged_default_t<float> use_adventure_riding_;
   ranged_default_t<float> use_adventure_riding_curve_;
+  ranged_default_t<float> adventure_riding_speed_factor_;
 
   ranged_default_t<float> closure_factor_;
   ranged_default_t<float> speed_penalty_factor_;

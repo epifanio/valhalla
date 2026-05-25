@@ -413,6 +413,9 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
   auto final_speed = std::min(edge_speed, top_speed_);
 
   float sec = (edge->length() * kSpeedFactor[final_speed]);
+  // Rider-skill speed scaler on adventure-riding edges. No-op early return
+  // when the rider hasn't requested a change.
+  sec /= AdventureRidingSpeedMultiplier(edge, tile);
 
   if (shortest_) {
     return Cost(edge->length(), sec);
