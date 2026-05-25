@@ -1520,12 +1520,20 @@ protected:
     // curve=1 still works exactly as before.
     if (costing_options.has_use_adventure_riding() ||
         costing_options.has_use_adventure_riding_curve()) {
+      // The default literals (1.0f for both) match the constants declared
+      // in src/sif/dynamiccost.cc (kDefaultUseAdventureRiding{,Curve}); we
+      // use literals here because those constants aren't in scope across
+      // translation units. In practice both fallbacks rarely fire — the
+      // JSON_PBF_RANGED_DEFAULT macro sets every field to its default at
+      // parse time so the has-bits are true after ParseBaseCostOptions,
+      // but constructing DynamicCost directly (test code, custom callers)
+      // can still leave the has-bit unset.
       const float bias = costing_options.has_use_adventure_riding()
                              ? costing_options.use_adventure_riding()
-                             : kDefaultUseAdventureRiding;
+                             : 1.0f;
       const float curve = costing_options.has_use_adventure_riding_curve()
                               ? costing_options.use_adventure_riding_curve()
-                              : kDefaultUseAdventureRidingCurve;
+                              : 1.0f;
       // Neutral bias short-circuits the pow() AND keeps the hot-path early
       // return cheap when only the curve was set.
       set_use_adventure_riding(bias >= 1.0f ? 1.0f : std::pow(bias, curve));
