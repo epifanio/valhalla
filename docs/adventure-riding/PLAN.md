@@ -205,4 +205,4 @@ The augmentation script doesn't need changes — its `source=TET` tag is already
 
 - **iOS/Android propagation** — point `epifanio/valhalla-mobile`'s `src/valhalla` submodule at this fork (see procedure earlier in the doc), expose `use_adventure_riding` on the Swift/Kotlin route-request wrapper.
 - **Per-country pipeline integration** — flip `mjolnir.adventure_riding_sources = {"TET": 1, …}` in the FastGIS country build configs and rebuild tiles. The `scripts/tet/*` augmentation pipeline already writes `source=TET`; no augmentation-script changes needed.
-- **Upstream rebase** — fork is currently on `Release 3.6.4` (`72f459fc5`). Rebase onto a newer upstream tag before the next iOS release if upstream has materially advanced.
+- **Upstream rebase** — fork is currently on `Release 3.7.0` (`72f459fc5`). Rebase onto a newer upstream tag before the next iOS release if upstream has materially advanced.
