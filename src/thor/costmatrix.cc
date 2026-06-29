@@ -76,17 +76,21 @@ struct CostMatrix::LocationStatus {
 
 class CostMatrix::ReachedMap {
 public:
-  using PmrVector = std::vector<uint32_t, std::pmr::polymorphic_allocator<uint32_t>>;
+  // NOTE: this map originally used a std::pmr::unsynchronized_pool_resource as an
+  // allocation optimisation. std::pmr's out-of-line runtime symbols
+  // (memory_resource, (un)synchronized_pool_resource) are only shipped in the
+  // system libc++ on iOS 17+/macOS 14+, so any binary referencing them aborts at
+  // dyld load time on iOS 16 (e.g. iPhone 8 — max iOS 16.7). We therefore use the
+  // default allocator instead; behaviour is identical, only the pooling
+  // micro-optimisation is dropped (negligible for on-device single-matrix use).
+  using PmrVector = std::vector<uint32_t>;
 
-  ReachedMap()
-      : pool_(std::pmr::new_delete_resource()), vec_alloc_(&pool_),
-        storage_(std::pmr::polymorphic_allocator<std::pair<const uint64_t, PmrVector>>(&pool_)) {
-  }
+  ReachedMap() = default;
 
   void add(uint64_t key, uint32_t value) {
     auto it = storage_.find(key);
     if (it == storage_.end()) {
-      it = storage_.emplace(key, PmrVector(vec_alloc_)).first;
+      it = storage_.emplace(key, PmrVector()).first;
     }
     it->second.push_back(value);
   }
@@ -104,9 +108,7 @@ public:
   }
 
 private:
-  std::pmr::unsynchronized_pool_resource pool_;
-  std::pmr::polymorphic_allocator<uint32_t> vec_alloc_;
-  ankerl::unordered_dense::pmr::map<uint64_t, PmrVector> storage_;
+  ankerl::unordered_dense::map<uint64_t, PmrVector> storage_;
 };
 
 // Constructor with cost threshold.
