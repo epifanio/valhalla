@@ -78,6 +78,49 @@ constexpr float kHillsUndulationDiscount = 0.15f; // seek  -> 0.85
 constexpr float kHillsGradePenalty = 1.50f;      // avoid -> 2.50
 constexpr float kHillsUndulationPenalty = 0.25f; // avoid -> 1.25
 
+// ── Tunnels axis ─────────────────────────────────────────────────────────────
+// "Skip the tunnel on a sunny day" is a TUNNEL preference, not an elevation
+// one, and it is much better posed than trying to seek altitude: it is a
+// property of the single edge in front of you. `exclude_tunnels` already
+// exists but is a hard filter in Allowed(), so it can leave Gotthard or an
+// urban underpass unroutable and fail the request. This is the soft version.
+// Tunnel edges are rare, so penalising them is a TARGETED inflation, not the
+// global one that flattening a whole country would be.
+constexpr float kDefaultUseTunnels = 0.5f;
+constexpr float kTunnelMaxDiscount = 0.25f; // prefer -> 0.75
+constexpr float kTunnelMaxPenalty = 2.00f;  // avoid  -> 3.00
+
+// ── Dirt difficulty ceiling ──────────────────────────────────────────────────
+// The owner's original question: does the dirt score reflect how DEMANDING the
+// riding is? A steep loose climb is not flat gravel. So difficulty is surface
+// roughness AMPLIFIED BY CLIMB, and the rider sets a ceiling on it.
+//
+// Keep this table and kDifficulty* in step with the server-side badge in
+// app/services/routing/surface_profile.py — the number that filters the route
+// and the number shown on it must be the same number, or neither is
+// explainable.
+constexpr float kSurfaceDifficulty[] = {
+    0.00f, // kPavedSmooth
+    0.05f, // kPaved
+    0.15f, // kPavedRough
+    0.30f, // kCompacted
+    0.45f, // kGravel
+    0.60f, // kDirt
+    0.80f, // kPath
+    1.00f, // kImpassable
+};
+// Climb doubles the difficulty of loose ground at its worst. Note it multiplies
+// the surface term rather than adding to it, so a steep TARMAC road stays easy
+// — steep is not the same as difficult, and a rider who asked for "no rough
+// stuff" did not ask to avoid mountain passes. That is what use_hills is for.
+constexpr float kDifficultySlopeBoost = 1.0f;
+constexpr int kDifficultyFullSlope = 12; // percent of climb = fully steep
+constexpr uint32_t kDifficultySlopeBuckets = 32;
+// Penalty per unit of difficulty above the ceiling. Steep enough to be a filter
+// in practice, soft enough that the only way home is still the way home.
+constexpr float kDifficultyRefusal = 20.0f;
+constexpr float kDefaultMaxDifficulty = 1.0f; // neutral: nothing is too hard
+
 constexpr Surface kMinimumMotorcycleSurface = Surface::kImpassable;
 
 // Default turn costs
@@ -105,6 +148,8 @@ constexpr ranged_default_t<float> kUseHighwaysRange{0, kDefaultUseHighways, 1.0f
 constexpr ranged_default_t<float> kUseTollsRange{0, kDefaultUseTolls, 1.0f};
 constexpr ranged_default_t<float> kUseTrailsRange{0, kDefaultUseTrails, 1.0f};
 constexpr ranged_default_t<float> kUseHillsRange{0, kDefaultUseHills, 1.0f};
+constexpr ranged_default_t<float> kUseTunnelsRange{0, kDefaultUseTunnels, 1.0f};
+constexpr ranged_default_t<float> kMaxDifficultyRange{0, kDefaultMaxDifficulty, 1.0f};
 constexpr ranged_default_t<uint32_t> kMotorcycleSpeedRange{10, baldr::kMaxAssumedSpeed,
                                                            baldr::kMaxSpeedKph};
 
@@ -358,6 +403,44 @@ public:
   // Smallest product the two tables can return, for the A* heuristic above.
   float hills_min_factor_ = 1.0f;
 
+  // Tunnels axis. Neutral (0.5) is not even a branch.
+  bool tunnels_active_ = false;
+  float tunnel_factor_ = 1.0f;
+
+  // Dirt difficulty ceiling. Neutral (1.0) is not even a table read.
+  bool difficulty_active_ = false;
+  float difficulty_factor_[8][kDifficultySlopeBuckets];
+
+  /**
+   * Soft tunnel preference. Non-tunnel edges are pinned at 1.0 in both
+   * directions, so a route with no tunnel in it is bitwise unchanged.
+   */
+  inline float TunnelMultiplier(const baldr::DirectedEdge* edge) const {
+    if (!tunnels_active_ || !edge->tunnel()) {
+      return 1.0f;
+    }
+    return tunnel_factor_;
+  }
+
+  /**
+   * Soft ceiling on how hard the ground is allowed to get, where difficulty is
+   * surface roughness amplified by climb. Edges at or below the rider's ceiling
+   * are untouched at exactly 1.0 — this only ever makes the too-hard ones dear,
+   * never the acceptable ones cheap, so it cannot drag the whole cost landscape
+   * the way a global discount would.
+   */
+  inline float DifficultyMultiplier(const baldr::DirectedEdge* edge) const {
+    if (!difficulty_active_) {
+      return 1.0f;
+    }
+    const int up = edge->max_up_slope();
+    const uint32_t slope = up <= 0 ? 0u
+                                   : (static_cast<uint32_t>(up) >= kDifficultySlopeBuckets
+                                          ? kDifficultySlopeBuckets - 1
+                                          : static_cast<uint32_t>(up));
+    return difficulty_factor_[static_cast<uint32_t>(edge->surface())][slope];
+  }
+
   /**
    * Multiplier for the edge's steepest slope. DISCOUNT ONLY, never above 1.0:
    * seeking hills discounts the hilly edges, avoiding them discounts the flat
@@ -464,6 +547,35 @@ MotorcycleCost::MotorcycleCost(const Costing& costing)
     min_undulation = std::min(min_undulation, hills_undulation_factor_[i]);
   }
   hills_min_factor_ = min_grade * min_undulation;
+
+  // Tunnels. Same shape as hills: 0.5 neutral, geometric interpolation either
+  // side so a mid-slider value is not inert.
+  const float use_tunnels =
+      costing_options.has_use_tunnels() ? costing_options.use_tunnels() : kDefaultUseTunnels;
+  const float tunnel_strength = std::abs(use_tunnels - 0.5f) * 2.0f;
+  tunnels_active_ = tunnel_strength > 0.0f;
+  if (tunnels_active_) {
+    const float full = use_tunnels > 0.5f ? (1.0f - kTunnelMaxDiscount) : (1.0f + kTunnelMaxPenalty);
+    tunnel_factor_ = std::pow(full, tunnel_strength);
+  }
+
+  // Difficulty ceiling. Defaults to 1.0, at which nothing can exceed it (the
+  // score is capped at 1) — so the default is an exact no-op, guarded anyway.
+  const float max_difficulty = costing_options.has_max_difficulty()
+                                   ? costing_options.max_difficulty()
+                                   : kDefaultMaxDifficulty;
+  difficulty_active_ = max_difficulty < 1.0f;
+  for (uint32_t sfc = 0; sfc < 8; ++sfc) {
+    for (uint32_t i = 0; i < kDifficultySlopeBuckets; ++i) {
+      const float steep =
+          std::min(1.0f, static_cast<float>(i) / static_cast<float>(kDifficultyFullSlope));
+      const float difficulty =
+          std::min(1.0f, kSurfaceDifficulty[sfc] * (1.0f + kDifficultySlopeBoost * steep));
+      const float excess = difficulty - max_difficulty;
+      difficulty_factor_[sfc][i] =
+          (difficulty_active_ && excess > 0.0f) ? (1.0f + kDifficultyRefusal * excess) : 1.0f;
+    }
+  }
 }
 
 // Destructor
@@ -576,6 +688,8 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
   factor *= AdventureRidingMultiplier(edge, tile);
   factor *= DirtFirstMultiplier(edge);
   factor *= HillsMultiplier(edge);
+  factor *= TunnelMultiplier(edge);
+  factor *= DifficultyMultiplier(edge);
 
   return {sec * factor, sec};
 }
@@ -732,6 +846,9 @@ void ParseMotorcycleCostOptions(const rapidjson::Document& doc,
   JSON_PBF_RANGED_DEFAULT(co, kUseTollsRange, json, "/use_tolls", use_tolls, warnings);
   JSON_PBF_RANGED_DEFAULT(co, kUseTrailsRange, json, "/use_trails", use_trails, warnings);
   JSON_PBF_RANGED_DEFAULT(co, kUseHillsRange, json, "/use_hills", use_hills, warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kUseTunnelsRange, json, "/use_tunnels", use_tunnels, warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kMaxDifficultyRange, json, "/max_difficulty", max_difficulty,
+                          warnings);
   JSON_PBF_RANGED_DEFAULT(co, kMotorcycleSpeedRange, json, "/top_speed", top_speed, warnings);
 }
 

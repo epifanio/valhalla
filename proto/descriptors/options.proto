@@ -410,6 +410,34 @@ message Costing {
     oneof has_use_dirt_first {
       float use_dirt_first = 100;
     }
+    // Soft tunnel preference. `exclude_tunnels` already exists but is a HARD
+    // filter in Allowed() — it can make Gotthard, Mont Blanc or an urban
+    // underpass unroutable and fail the request outright. This is the soft
+    // version: prefer daylight when there is a way round, take the tunnel when
+    // there is not.
+    //   0.0 = avoid tunnels (tunnel edges cost 3x)
+    //   0.5 = neutral / default — not even a branch taken
+    //   1.0 = prefer tunnels (tunnel edges cost 0.75x; bad weather, fastest)
+    // Non-tunnel edges are pinned at 1.0 in both directions, so a route with
+    // no tunnels in it is bitwise unchanged. Range [0, 1].
+    // epifanio/valhalla feat/tile-elevation.
+    oneof has_use_tunnels {
+      float use_tunnels = 101;
+    }
+    // Dirt difficulty ceiling — how hard a surface the rider is willing to be
+    // sent onto, where difficulty is surface roughness AMPLIFIED BY CLIMB: a
+    // steep loose climb is not flat gravel. Requires elevation in the tiles
+    // (see additional_data.elevation); on elevation-blind tiles the climb term
+    // reads zero and this degrades to a pure surface ceiling.
+    //   1.0 = neutral / default — nothing is too hard, exact no-op
+    //   0.0 = tarmac only
+    // A SOFT ceiling: edges above it are penalised steeply rather than
+    // excluded, so a request never becomes unroutable because the only way
+    // home is a rough kilometre. Range [0, 1].
+    // epifanio/valhalla feat/tile-elevation.
+    oneof has_max_difficulty {
+      float max_difficulty = 102;
+    }
   }
 
   oneof has_options {
