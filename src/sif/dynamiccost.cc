@@ -117,6 +117,27 @@ constexpr float kDefaultUseAdventureRidingCurve = 1.0f;
 // makes very long trail traversals routing-pathological; bounded above 3.0
 // because nothing is faster than that on grade3 forestry road in practice.
 constexpr float kDefaultAdventureRidingSpeedFactor = 1.0f;
+// Default dirt-first strength. 0 = off: stock routing, and the hot-path
+// guard means a request without the option never reads the surface table.
+constexpr float kDefaultUseDirtFirst = 0.0f;
+// Full-strength (use_dirt_first = 1.0) per-Surface cost multipliers, indexed
+// by baldr::Surface. Paved surfaces become expensive connectors; compacted/
+// dirt/gravel become the preferred route material. kDirt also covers every
+// untagged highway=track (the parser's Use::kTrack default — verified against
+// OSM ground truth in NO+SE at 98.7-100% agreement, 2026-08-24). kPath stays
+// near neutral: usually rough or overgrown, rideable but not worth seeking.
+// kImpassable is Allowed()'s problem, not a costing preference.
+// At strength d each multiplier interpolates: 1 + d * (full - 1).
+constexpr float kDirtFirstFullFactor[] = {
+    3.0f,  // kPavedSmooth
+    3.0f,  // kPaved
+    2.5f,  // kPavedRough
+    0.4f,  // kCompacted
+    0.4f,  // kDirt
+    0.45f, // kGravel
+    0.9f,  // kPath
+    1.0f,  // kImpassable
+};
 
 // How much to avoid generic service roads.
 constexpr float kDefaultServiceFactor = 1.0f;
@@ -196,6 +217,7 @@ BaseCostingOptionsConfig::BaseCostingOptionsConfig()
       use_adventure_riding_{0.f, kDefaultUseAdventureRiding, 1.f},
       use_adventure_riding_curve_{0.1f, kDefaultUseAdventureRidingCurve, 10.f},
       adventure_riding_speed_factor_{0.3f, kDefaultAdventureRidingSpeedFactor, 3.f},
+      use_dirt_first_{0.f, kDefaultUseDirtFirst, 1.f},
       closure_factor_{kClosureFactorRange}, speed_penalty_factor_{kSpeedPenaltyFactorRange},
       exclude_unpaved_(false), exclude_bridges_(false), exclude_tunnels_(false),
       exclude_tolls_(false), exclude_highways_(false), exclude_ferries_(false), has_excludes_(false),
@@ -471,6 +493,22 @@ void DynamicCost::set_use_adventure_riding(float use_adventure_riding) {
   adventure_riding_factor_ = use_adventure_riding;
 }
 
+void DynamicCost::set_use_dirt_first(float use_dirt_first) {
+  if (use_dirt_first <= 0.f) {
+    // Off — restore the neutral table so a reused costing object can't leak
+    // a previous request's preference.
+    dirt_first_active_ = false;
+    for (auto& f : dirt_first_factor_) {
+      f = 1.0f;
+    }
+    return;
+  }
+  dirt_first_active_ = true;
+  for (size_t i = 0; i < 8; ++i) {
+    dirt_first_factor_[i] = 1.0f + use_dirt_first * (kDirtFirstFullFactor[i] - 1.0f);
+  }
+}
+
 void ParseBaseCostOptions(const rapidjson::Value& json,
                           Costing* c,
                           const BaseCostingOptionsConfig& cfg,
@@ -638,6 +676,11 @@ void ParseBaseCostOptions(const rapidjson::Value& json,
   JSON_PBF_RANGED_DEFAULT(co, cfg.adventure_riding_speed_factor_, json,
                           "/adventure_riding_speed_factor",
                           adventure_riding_speed_factor, warnings);
+  // use_dirt_first — per-Surface paved/unpaved preference inversion. Keys on
+  // DirectedEdge::surface(), so unlike the adventure-riding options it works
+  // on stock tiles with no rebuild.
+  JSON_PBF_RANGED_DEFAULT(co, cfg.use_dirt_first_, json, "/use_dirt_first",
+                          use_dirt_first, warnings);
 
   // closure_factor
   JSON_PBF_RANGED_DEFAULT(co, cfg.closure_factor_, json, "/closure_factor", closure_factor, warnings);

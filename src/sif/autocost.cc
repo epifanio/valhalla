@@ -564,6 +564,7 @@ Cost AutoCost::EdgeCost(const baldr::DirectedEdge* edge,
   }
 
   factor *= AdventureRidingMultiplier(edge, tile);
+  factor *= DirtFirstMultiplier(edge);
 
   // base cost before the factor is a linear combination of time vs distance, depending on which
   // one the user thinks is more important to them
