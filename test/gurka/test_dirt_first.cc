@@ -59,6 +59,7 @@ class DirtFirstTest : public ::testing::Test {
 protected:
   static gurka::map gravel_map;
   static gurka::map track_map;
+  static gurka::map ferry_map;
 
   static void SetUpTestSuite() {
     const std::string ascii_map = R"(
@@ -94,11 +95,32 @@ protected:
     };
     track_map = gurka::buildtiles(layout, track_ways, {}, {}, "test/data/gurka_dirt_first_track",
                                   {{"mjolnir.concurrency", "1"}});
+
+    // Fixture 3: an all-paved land route vs a ferry crossing between the
+    // same banks. The slow land road (maxspeed 15) still beats the 5-minute
+    // ferry at stock costing; dirt-first must NOT flip that (the ferry
+    // early-return in EdgeCost would otherwise leave ferry cost stock while
+    // every road gets 6x — the Bergen→Göteborg-via-Denmark loophole).
+    const gurka::ways ferry_ways = {
+        {"AB", {{"highway", "unclassified"}, {"surface", "asphalt"}, {"maxspeed", "15"}}},
+        {"BC", {{"highway", "unclassified"}, {"surface", "asphalt"}, {"maxspeed", "15"}}},
+        {"AD", {{"highway", "unclassified"}, {"surface", "asphalt"}, {"maxspeed", "15"}}},
+        {"EC", {{"highway", "unclassified"}, {"surface", "asphalt"}, {"maxspeed", "15"}}},
+        {"DE",
+         {{"route", "ferry"},
+          {"motorcar", "yes"},
+          {"motorcycle", "yes"},
+          {"duration", "00:05:00"},
+          {"name", "Loophole ferry"}}},
+    };
+    ferry_map = gurka::buildtiles(layout, ferry_ways, {}, {}, "test/data/gurka_dirt_first_ferry",
+                                  {{"mjolnir.concurrency", "1"}});
   }
 };
 
 gurka::map DirtFirstTest::gravel_map = {};
 gurka::map DirtFirstTest::track_map = {};
+gurka::map DirtFirstTest::ferry_map = {};
 
 // Without the option the asphalt route wins: it is shorter and unpaved
 // surfaces carry no discount.
@@ -168,6 +190,25 @@ TEST_F(DirtFirstTest, SpeedFloorMakesTrackTimeSane) {
     auto floored = gurka::do_action(valhalla::Options::route, track_map, {"A", "D", "C"}, c,
                                     dirt_first_options(c, "1"));
     EXPECT_GE(total_time_sec(stock), 5.f * total_time_sec(floored));
+  }
+}
+
+// Ferries must not become a loophole: with every paved road at 6x and the
+// ferry early-return unscaled, an all-paved region routes onto long ferry
+// crossings as "free connectors" (Bergen→Göteborg went via two Denmark
+// ferries in the field, 2026-08-24). DirtFirstFerryMultiplier scales ferry
+// edges like smooth tarmac, so a stock road-vs-ferry decision must be
+// UNCHANGED by dirt-first when there is no dirt to win.
+TEST_F(DirtFirstTest, NoFerryLoophole) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    auto stock = gurka::do_action(valhalla::Options::route, ferry_map, {"A", "C"}, c,
+                                  dirt_first_options(c, ""));
+    gurka::assert::raw::expect_path(stock, {"AB", "BC"});
+
+    auto dirt = gurka::do_action(valhalla::Options::route, ferry_map, {"A", "C"}, c,
+                                 dirt_first_options(c, "1"));
+    gurka::assert::raw::expect_path(dirt, {"AB", "BC"});
   }
 }
 
