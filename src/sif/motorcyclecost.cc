@@ -7,6 +7,9 @@
 #include "sif/costconstants.h"
 #include "sif/osrm_car_duration.h"
 
+#include <algorithm>
+#include <cmath>
+
 #ifdef INLINE_TEST
 #include "test.h"
 #include "worker.h"
@@ -27,6 +30,53 @@ namespace {
 constexpr float kDefaultUseHighways = 0.5f; // Factor between 0 and 1
 constexpr float kDefaultUseTolls = 0.5f;    // Factor between 0 and 1
 constexpr float kDefaultUseTrails = 0.0f;   // Factor between 0 and 1
+constexpr float kDefaultUseHills = 0.5f;    // Factor between 0 and 1 — 0.5 is neutral
+
+// ── Hills axis ───────────────────────────────────────────────────────────────
+// A motorcycle is not a bicycle. Bicycle costing reads use_hills one-sidedly —
+// 0 avoids climbs, 1 merely stops avoiding them — because nobody pedals uphill
+// for fun. A rider does: the mountain pass IS the destination. So here 0.5 is
+// NEUTRAL, above it SEEKS elevation change and below it avoids it, which also
+// means the value the app already sends (0.5) leaves routing bit-identical.
+//
+// Hilliness is measured from max_up_slope / max_down_slope, NOT weighted_grade.
+// weighted_grade is the net grade across the edge, so a switchback that climbs
+// 200 m and drops 200 m — precisely the road worth riding — reads as flat. The
+// steepest slope actually encountered does not.
+//
+// FLAT IS PINNED AT 1.0 in both directions, the same invariant dirt-first holds
+// for pavement. Seeking hills DISCOUNTS the hilly edges; avoiding them PENALIZES
+// the hilly edges. Neither touches flat ground. The first cut had "avoid"
+// discount flat edges instead — mathematically the same preference, but in a
+// flat country it becomes a near-global discount, and transition penalties are
+// plain seconds that do not scale with it. Measured: Warsaw→Kraków collapsed
+// from 367 km to 285 km, the router buying motorway to dodge turns that had
+// become relatively twice as dear. Nothing to do with hills.
+//
+// TWO terms, because "steep and changing elevation" is two different things and
+// only one of them takes a rider up a mountain:
+//
+//   * SUSTAINED gradient — |weighted_grade|, the net grade across the edge.
+//     Cost is proportional to length, so a discount scaled by |grade| is a
+//     discount per metre climbed: it accumulates exactly the way ascent does.
+//     This is the term that decides whether the route goes over the pass.
+//   * UNDULATION — max_up + |max_down| within the edge. This is the hairpins
+//     and the rollercoaster. It is deliberately the SMALLER term: on its own it
+//     rewards short steep bits that gain no altitude at all. Measured with
+//     undulation as the only term, use_hills 1.0 sent Bergen→Oslo 30 km further
+//     for 40 m LESS peak altitude — plenty of steep, no mountain.
+//
+// weighted_grade is stored as a 4-bit bucket, grade * 0.6 + 6.5, so the table is
+// indexed by the bucket directly.
+constexpr uint32_t kHillsGradeBuckets = 16;
+constexpr float kHillsFullGrade = 8.0f;    // percent of sustained grade = fully hilly
+constexpr int kHillsFullUndulation = 20;   // up + |down| percent = fully rolling
+constexpr uint32_t kHillsUndulationBuckets = 64;
+// Full-strength effect on a fully hilly edge, per term.
+constexpr float kHillsGradeDiscount = 0.60f;     // seek  -> 0.40
+constexpr float kHillsUndulationDiscount = 0.15f; // seek  -> 0.85
+constexpr float kHillsGradePenalty = 1.50f;      // avoid -> 2.50
+constexpr float kHillsUndulationPenalty = 0.25f; // avoid -> 1.25
 
 constexpr Surface kMinimumMotorcycleSurface = Surface::kImpassable;
 
@@ -54,6 +104,7 @@ constexpr float kLeftSideTurnCosts[] = {kTCStraight,         kTCSlight,  kTCUnfa
 constexpr ranged_default_t<float> kUseHighwaysRange{0, kDefaultUseHighways, 1.0f};
 constexpr ranged_default_t<float> kUseTollsRange{0, kDefaultUseTolls, 1.0f};
 constexpr ranged_default_t<float> kUseTrailsRange{0, kDefaultUseTrails, 1.0f};
+constexpr ranged_default_t<float> kUseHillsRange{0, kDefaultUseHills, 1.0f};
 constexpr ranged_default_t<uint32_t> kMotorcycleSpeedRange{10, baldr::kMaxAssumedSpeed,
                                                            baldr::kMaxSpeedKph};
 
@@ -258,7 +309,13 @@ public:
    * estimate is less than the least possible time along roads.
    */
   virtual float AStarCostFactor() const override {
-    return kSpeedFactor[top_speed_] * min_linear_cost_factor_;
+    // The heuristic must UNDER-estimate, so it has to know the smallest factor
+    // EdgeCost can produce. Seeking hills discounts steep edges below 1.0; leave
+    // this at 1.0 and A* over-estimates, prunes the mountain road it was asked
+    // to find, and returns a FLATTER route the harder you ask for hills —
+    // measured on Bergen→Oslo, which dropped from a 1397 m peak to 1191 m at
+    // use_hills 1.0 before this line existed.
+    return kSpeedFactor[top_speed_] * min_linear_cost_factor_ * hills_min_factor_;
   }
 
   /**
@@ -291,6 +348,34 @@ public:
   float toll_factor_;    // Factor applied when road has a toll
   float surface_factor_; // How much the surface factors are applied when using trails
   float highway_factor_; // Factor applied when road is a motorway or trunk
+
+  // Hills axis. hills_active_ guards the hot path so a request at the neutral
+  // 0.5 — which is every request the app sends today — is bitwise identical to
+  // a build without this axis, not even a table read.
+  bool hills_active_ = false;
+  float hills_grade_factor_[kHillsGradeBuckets];
+  float hills_undulation_factor_[kHillsUndulationBuckets];
+  // Smallest product the two tables can return, for the A* heuristic above.
+  float hills_min_factor_ = 1.0f;
+
+  /**
+   * Multiplier for the edge's steepest slope. DISCOUNT ONLY, never above 1.0:
+   * seeking hills discounts the hilly edges, avoiding them discounts the flat
+   * ones. Inflating instead would distort the transition penalties, which are
+   * plain seconds and do not scale with the factor — the mistake that sent a
+   * dirt-first route over two ferries (see DirtFirstMultiplier).
+   */
+  inline float HillsMultiplier(const baldr::DirectedEdge* edge) const {
+    if (!hills_active_) {
+      return 1.0f;
+    }
+    const int total = edge->max_up_slope() - edge->max_down_slope();
+    const uint32_t u = total <= 0 ? 0u
+                                  : (static_cast<uint32_t>(total) >= kHillsUndulationBuckets
+                                         ? kHillsUndulationBuckets - 1
+                                         : static_cast<uint32_t>(total));
+    return hills_grade_factor_[edge->weighted_grade()] * hills_undulation_factor_[u];
+  }
 };
 
 // Constructor
@@ -343,6 +428,42 @@ MotorcycleCost::MotorcycleCost(const Costing& costing)
     float f = 1.0f - use_trails * 2.0f;
     surface_factor_ = static_cast<uint32_t>(kMaxTrailBiasFactor * (f * f));
   }
+
+  // Hills. Strength is the distance from the neutral 0.5, so both halves of
+  // the slider reach full effect at their end and neither does anything at
+  // the middle. GEOMETRIC interpolation (pow), matching the dirt-first axis:
+  // linear interpolation collapses the mid-slider gradient, so "moderate"
+  // ends up doing nothing at all.
+  // Explicit presence check: use_hills has a `oneof has_use_hills` wrapper, so an
+  // unset field reads back as the proto default 0.0 — which on this axis is FULL
+  // AVOID, not neutral. Callers that build a Costing directly instead of going
+  // through ParseMotorcycleCostOptions (map matching, internal costing) would
+  // otherwise silently get hill-avoidance nobody asked for.
+  const float use_hills =
+      costing_options.has_use_hills() ? costing_options.use_hills() : kDefaultUseHills;
+  const float strength = std::abs(use_hills - 0.5f) * 2.0f;
+  const bool seek = use_hills > 0.5f;
+  hills_active_ = strength > 0.0f;
+  hills_min_factor_ = 1.0f;
+  float min_grade = 1.0f, min_undulation = 1.0f;
+  for (uint32_t i = 0; i < kHillsGradeBuckets; ++i) {
+    // Undo the 4-bit bucketing: bucket = grade * 0.6 + 6.5.
+    const float grade_pct = (static_cast<float>(i) - 6.5f) / 0.6f;
+    const float hilliness = std::min(1.0f, std::abs(grade_pct) / kHillsFullGrade);
+    const float full = seek ? (1.0f - kHillsGradeDiscount * hilliness)
+                            : (1.0f + kHillsGradePenalty * hilliness);
+    hills_grade_factor_[i] = hills_active_ ? std::pow(full, strength) : 1.0f;
+    min_grade = std::min(min_grade, hills_grade_factor_[i]);
+  }
+  for (uint32_t i = 0; i < kHillsUndulationBuckets; ++i) {
+    const float rolling =
+        std::min(1.0f, static_cast<float>(i) / static_cast<float>(kHillsFullUndulation));
+    const float full = seek ? (1.0f - kHillsUndulationDiscount * rolling)
+                            : (1.0f + kHillsUndulationPenalty * rolling);
+    hills_undulation_factor_[i] = hills_active_ ? std::pow(full, strength) : 1.0f;
+    min_undulation = std::min(min_undulation, hills_undulation_factor_[i]);
+  }
+  hills_min_factor_ = min_grade * min_undulation;
 }
 
 // Destructor
@@ -454,6 +575,7 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
   factor *= EdgeFactor(edgeid);
   factor *= AdventureRidingMultiplier(edge, tile);
   factor *= DirtFirstMultiplier(edge);
+  factor *= HillsMultiplier(edge);
 
   return {sec * factor, sec};
 }
@@ -609,6 +731,7 @@ void ParseMotorcycleCostOptions(const rapidjson::Document& doc,
   JSON_PBF_RANGED_DEFAULT(co, kUseHighwaysRange, json, "/use_highways", use_highways, warnings);
   JSON_PBF_RANGED_DEFAULT(co, kUseTollsRange, json, "/use_tolls", use_tolls, warnings);
   JSON_PBF_RANGED_DEFAULT(co, kUseTrailsRange, json, "/use_trails", use_trails, warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kUseHillsRange, json, "/use_hills", use_hills, warnings);
   JSON_PBF_RANGED_DEFAULT(co, kMotorcycleSpeedRange, json, "/top_speed", top_speed, warnings);
 }
 
