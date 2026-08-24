@@ -1370,13 +1370,16 @@ protected:
   /**
    * Ferry edges are exempt from the normal surface factors — motorcycle,
    * bicycle and pedestrian EdgeCost early-return on Use::kFerry before the
-   * factor stack runs. Under dirt-first that exemption is a loophole: every
-   * paved road gets several times more expensive while ferry cost stays
-   * stock, so long crossings start winning as "free connectors"
-   * (Bergen→Göteborg routed via two Denmark ferries, field report
-   * 2026-08-24). Scale the ferry branch by the kPavedSmooth multiplier —
-   * a ferry is a paved connector — so the STOCK road-vs-ferry tradeoff is
-   * preserved and dirt-first only moves the dirt-vs-paved decision.
+   * factor stack runs. Cost a ferry like the tarmac it connects, so the
+   * STOCK road-vs-ferry tradeoff survives dirt-first untouched.
+   *
+   * With the current table (paved pinned at 1.0) this is a no-op, and the
+   * ferry loophole it was written for — Bergen→Göteborg routing over two
+   * Denmark crossings because every paved road had been inflated 6x while
+   * ferry cost stayed stock (field report 2026-08-24) — cannot recur by
+   * construction. It stays as the explicit guarantee for the ferry branch:
+   * if a future table ever prices pavement differently, ferries follow
+   * pavement instead of silently becoming free connectors again.
    * (Auto needs no call site: its ferry branch falls through to
    * DirtFirstMultiplier via the edge's stored surface.)
    */
@@ -1445,8 +1448,10 @@ protected:
 
   // Dirt-first axis (`Costing.Options.use_dirt_first`, proto field 100).
   // Per-Surface cost multipliers indexed by DirectedEdge::surface() (8
-  // values, kPavedSmooth..kImpassable), interpolated between neutral (all
-  // 1.0 at strength 0) and the full-strength table in dynamiccost.cc.
+  // values, kPavedSmooth..kImpassable), geometrically interpolated between
+  // neutral (all 1.0 at strength 0) and the full-strength table in
+  // dynamiccost.cc. Every entry is <= 1.0 by construction: dirt is
+  // discounted, paved is never inflated (see the table's warning).
   // dirt_first_active_ guards the hot path so stock requests never even
   // read the table.
   bool dirt_first_active_ = false;

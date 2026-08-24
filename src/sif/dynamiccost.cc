@@ -14,6 +14,7 @@
 #include "sif/truckcost.h"
 
 #include <boost/optional.hpp>
+#include <cmath>
 
 using namespace valhalla::baldr;
 using namespace valhalla::midgard;
@@ -121,31 +122,35 @@ constexpr float kDefaultAdventureRidingSpeedFactor = 1.0f;
 // guard means a request without the option never reads the surface table.
 constexpr float kDefaultUseDirtFirst = 0.0f;
 // Full-strength (use_dirt_first = 1.0) per-Surface cost multipliers, indexed
-// by baldr::Surface. Paved surfaces become expensive connectors; compacted/
-// dirt/gravel become the preferred route material. kDirt also covers every
-// untagged highway=track (the parser's Use::kTrack default — verified against
-// OSM ground truth in NO+SE at 98.7-100% agreement, 2026-08-24). kPath stays
-// near neutral: usually rough or overgrown, rideable but not worth seeking.
-// kImpassable is Allowed()'s problem, not a costing preference.
-// At strength d each multiplier interpolates: 1 + d * (full - 1).
+// by baldr::Surface. Unpaved surfaces get DISCOUNTED; paved stays at exactly
+// 1.0. kDirt also covers every untagged highway=track (the parser's
+// Use::kTrack default — verified against OSM ground truth in NO+SE at
+// 98.7-100% agreement, 2026-08-24). kImpassable stays neutral: it is
+// Allowed()'s problem, and discounting it would actively seek out
+// unrideable edges.
 //
-// The paved/dirt spread at full strength (6.0 vs 0.3 = 20x) is deliberately
-// wide: cost is per-second, and untagged tracks carry a 5 km/h default speed
-// (lua/graph.lua) — a ~10x time handicap vs a 50 km/h connector road. A
-// narrower spread can never route onto slow tracks at all. The gradient this
-// buys: mid strengths (~0.5) take good gravel roads but still skip 5 km/h
-// tracks; only full strength treats tracks as route material outright.
+// ⚠️ NEVER put a value ABOVE 1.0 in this table. Penalizing paved instead of
+// discounting dirt looks equivalent — same dirt:paved ratio — but is not:
+// Valhalla adds transition costs (maneuver, gate, toll booth, country
+// crossing) in SECONDS, unscaled by this factor. Multiplying every paved
+// edge by 6 therefore made those penalties 6x cheaper in relative terms and
+// distorted every non-surface decision. Measured Bergen->Göteborg
+// 2026-08-24: strength 1.0 returned a route SHORTER and FASTER than stock
+// (810 km / 11.8 h vs 967 km / 14.0 h) — a twistier tarmac path bought with
+// maneuver penalties that no longer mattered. Keeping paved at 1.0 leaves
+// the entire paved network behaving exactly as stock, so dirt-first only
+// ever moves the dirt-vs-paved decision.
 constexpr float kDirtFirstFullFactor[] = {
-    6.0f,  // kPavedSmooth
-    6.0f,  // kPaved
-    4.0f,  // kPavedRough
-    0.3f,  // kCompacted
-    0.3f,  // kDirt
-    0.35f, // kGravel
-    0.8f,  // kPath
-    1.0f,  // kImpassable
+    1.0f,  // kPavedSmooth — stock, never inflated
+    1.0f,  // kPaved
+    0.7f,  // kPavedRough — cobbles have character; mild preference
+    0.05f, // kCompacted — maintained gravel: prime material
+    0.05f, // kDirt — includes every untagged highway=track
+    0.06f, // kGravel
+    0.15f, // kPath — rideable but rough; sought less than a good track
+    1.0f,  // kImpassable — neutral, never sought
 };
-// Full-strength speed floors (km/h) for motor profiles on unpaved surfaces
+// Speed floors (km/h) for motor profiles on unpaved surfaces
 // (DynamicCost::DirtFirstSpeed). The graph's classified defaults for
 // surface=dirt tracks are 5 km/h halved to 2 by lua/graph.lua's unpaved
 // rule — measured on live EU tiles: real untagged Norwegian tracks carry
@@ -153,7 +158,11 @@ constexpr float kDirtFirstFullFactor[] = {
 // unroutable under any cost table and their ETAs pathological. 30 km/h is
 // the adventure-riding consensus pace for forestry track (the TET
 // augmentation uses maxspeed=40 for curated trails); kPath stays lower.
-// At strength d each floor scales linearly: round(d * full).
+//
+// These do NOT scale with strength. The floor corrects bogus DATA, it does
+// not express a preference: a rider on the mildest dirt-first setting still
+// does not ride a forestry track at 2 km/h, and their ETA should say so.
+// Strength governs the cost table alone.
 constexpr uint32_t kDirtFirstFullSpeedFloor[] = {
     0,  // kPavedSmooth
     0,  // kPaved
@@ -532,9 +541,15 @@ void DynamicCost::set_use_dirt_first(float use_dirt_first) {
   }
   dirt_first_active_ = true;
   for (size_t i = 0; i < 8; ++i) {
-    dirt_first_factor_[i] = 1.0f + use_dirt_first * (kDirtFirstFullFactor[i] - 1.0f);
-    dirt_first_speed_floor_[i] =
-        static_cast<uint32_t>(use_dirt_first * kDirtFirstFullSpeedFloor[i] + 0.5f);
+    // GEOMETRIC interpolation, not linear. Linear (1 + d*(full-1)) collapses
+    // the mid-strength gradient once paved is pinned at 1.0: at d=0.6 dirt
+    // would land on 0.43, which against the ~4x time handicap of a 30 km/h
+    // track vs an 80 km/h road leaves dirt MORE expensive than tarmac —
+    // i.e. "Moderate" would do nothing at all. pow() keeps each step a
+    // constant fraction of the full discount (d=0.6 -> dirt 0.17, ~2.3x
+    // cheaper than tarmac per km) and still gives an exact no-op at d=0.
+    dirt_first_factor_[i] = std::pow(kDirtFirstFullFactor[i], use_dirt_first);
+    dirt_first_speed_floor_[i] = kDirtFirstFullSpeedFloor[i];
   }
 }
 

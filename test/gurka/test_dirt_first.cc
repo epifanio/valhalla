@@ -212,6 +212,30 @@ TEST_F(DirtFirstTest, NoFerryLoophole) {
   }
 }
 
+// Dirt-first must never make an ALL-PAVED route cheaper or different than
+// stock. Pinning paved at 1.0 is what guarantees it: inflating paved (an
+// earlier table used 6x) makes Valhalla's second-based transition penalties
+// relatively negligible, and the router starts buying maneuvers it would
+// otherwise refuse — Bergen→Göteborg came back SHORTER and FASTER than
+// stock at full strength (810 km / 11.8 h vs 967 km / 14.0 h), on tarmac.
+// The all-paved ferry fixture has no dirt to win, so every strength must
+// return the stock path AND the stock time.
+TEST_F(DirtFirstTest, PavedRoutesAreUntouchedAtEveryStrength) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    auto stock = gurka::do_action(valhalla::Options::route, ferry_map, {"A", "C"}, c,
+                                  dirt_first_options(c, ""));
+    const float t_stock = total_time_sec(stock);
+    for (const auto* strength : {"0.35", "0.6", "1"}) {
+      SCOPED_TRACE(std::string("strength=") + strength);
+      auto dirt = gurka::do_action(valhalla::Options::route, ferry_map, {"A", "C"}, c,
+                                   dirt_first_options(c, strength));
+      gurka::assert::raw::expect_path(dirt, {"AB", "BC"});
+      EXPECT_EQ(total_time_sec(dirt), t_stock);
+    }
+  }
+}
+
 // Out-of-range values snap to the DEFAULT (0 = off) per ranged_default_t —
 // not to the nearest bound. A bogus strength must not error, and must not
 // accidentally give the caller full dirt-first either.
