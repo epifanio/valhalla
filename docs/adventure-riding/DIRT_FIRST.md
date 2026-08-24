@@ -36,14 +36,23 @@ at strength `d` each multiplier interpolates `1 + d * (full − 1)`:
 
 | Surface | full-strength × | note |
 |---|---|---|
-| paved_smooth | 3.0 | tarmac = connector only |
-| paved | 3.0 | |
-| paved_rough | 2.5 | cobbles: still pavement |
-| compacted | 0.4 | maintained gravel — prime material |
-| dirt | 0.4 | **includes every untagged `highway=track`** |
-| gravel | 0.45 | |
-| path | 0.9 | rideable but not sought |
+| paved_smooth | 6.0 | tarmac = connector only |
+| paved | 6.0 | |
+| paved_rough | 4.0 | cobbles: still pavement |
+| compacted | 0.3 | maintained gravel — prime material |
+| dirt | 0.3 | **includes every untagged `highway=track`** |
+| gravel | 0.35 | |
+| path | 0.8 | rideable but not sought |
 | impassable | 1.0 | `Allowed()`'s problem |
+
+The 20× paved/dirt spread at full strength is deliberate: cost is
+per-*second*, and untagged tracks carry a **5 km/h default speed**
+(`lua/graph.lua`) — a ~10× time handicap against a 50 km/h connector road
+that a 3×/0.4× spread can never overcome. The interpolation then gives a
+useful gradient: at strength ~0.5 the route takes good gravel roads but
+still skips 5 km/h tracks; only strength → 1 treats slow tracks as route
+material outright. Out-of-range values snap to the **default (off)** per
+`ranged_default_t` — not to the nearest bound.
 
 ## Why Surface is a safe key (Phase-0 ground truth, 2026-08-24)
 

@@ -128,14 +128,21 @@ constexpr float kDefaultUseDirtFirst = 0.0f;
 // near neutral: usually rough or overgrown, rideable but not worth seeking.
 // kImpassable is Allowed()'s problem, not a costing preference.
 // At strength d each multiplier interpolates: 1 + d * (full - 1).
+//
+// The paved/dirt spread at full strength (6.0 vs 0.3 = 20x) is deliberately
+// wide: cost is per-second, and untagged tracks carry a 5 km/h default speed
+// (lua/graph.lua) — a ~10x time handicap vs a 50 km/h connector road. A
+// narrower spread can never route onto slow tracks at all. The gradient this
+// buys: mid strengths (~0.5) take good gravel roads but still skip 5 km/h
+// tracks; only full strength treats tracks as route material outright.
 constexpr float kDirtFirstFullFactor[] = {
-    3.0f,  // kPavedSmooth
-    3.0f,  // kPaved
-    2.5f,  // kPavedRough
-    0.4f,  // kCompacted
-    0.4f,  // kDirt
-    0.45f, // kGravel
-    0.9f,  // kPath
+    6.0f,  // kPavedSmooth
+    6.0f,  // kPaved
+    4.0f,  // kPavedRough
+    0.3f,  // kCompacted
+    0.3f,  // kDirt
+    0.35f, // kGravel
+    0.8f,  // kPath
     1.0f,  // kImpassable
 };
 
