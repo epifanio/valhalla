@@ -1367,6 +1367,26 @@ protected:
     return std::max(speed, dirt_first_speed_floor_[static_cast<uint32_t>(edge->surface())]);
   }
 
+  /**
+   * Ferry edges are exempt from the normal surface factors — motorcycle,
+   * bicycle and pedestrian EdgeCost early-return on Use::kFerry before the
+   * factor stack runs. Under dirt-first that exemption is a loophole: every
+   * paved road gets several times more expensive while ferry cost stays
+   * stock, so long crossings start winning as "free connectors"
+   * (Bergen→Göteborg routed via two Denmark ferries, field report
+   * 2026-08-24). Scale the ferry branch by the kPavedSmooth multiplier —
+   * a ferry is a paved connector — so the STOCK road-vs-ferry tradeoff is
+   * preserved and dirt-first only moves the dirt-vs-paved decision.
+   * (Auto needs no call site: its ferry branch falls through to
+   * DirtFirstMultiplier via the edge's stored surface.)
+   */
+  inline float DirtFirstFerryMultiplier() const {
+    if (!dirt_first_active_) {
+      return 1.0f;
+    }
+    return dirt_first_factor_[static_cast<uint32_t>(baldr::Surface::kPavedSmooth)];
+  }
+
   // Algorithm pass
   uint32_t pass_;
 

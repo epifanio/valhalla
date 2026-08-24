@@ -637,7 +637,8 @@ Cost BicycleCost::EdgeCost(const baldr::DirectedEdge* edge,
     // Compute elapsed time based on speed. Modulate cost with weighting factors.
     assert(edge->speed() < kSpeedFactor.size());
     float sec = (edge->length() * kSpeedFactor[edge->speed()]);
-    return {shortest_ ? edge->length() : sec * ferry_factor_, sec};
+    // Dirt-first: scale ferries like smooth tarmac (see DirtFirstFerryMultiplier).
+    return {shortest_ ? edge->length() : sec * ferry_factor_ * DirtFirstFerryMultiplier(), sec};
   }
 
   // Represents how stressful a roadway is without looking at grade or cycle accommodations

@@ -425,8 +425,10 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
 
   // Special case for travel on a ferry
   if (edge->use() == Use::kFerry) {
-    // Use the edge speed (should be the speed of the ferry)
-    return {sec * ferry_factor_, sec};
+    // Use the edge speed (should be the speed of the ferry). Dirt-first
+    // scales ferries like smooth tarmac so they can't become a cheap
+    // detour around penalized roads.
+    return {sec * ferry_factor_ * DirtFirstFerryMultiplier(), sec};
   }
 
   float factor = kDensityFactor[edge->density()] +
