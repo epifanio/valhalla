@@ -773,6 +773,7 @@ Cost PedestrianCost::EdgeCost(const baldr::DirectedEdge* edge,
   factor *= edge->lit() + (!edge->lit() * unlit_factor_);
   factor *= EdgeFactor(edgeid);
   factor *= AdventureRidingMultiplier(edge, tile);
+  factor *= DirtFirstMultiplier(edge);
 
   // Slightly favor walkways/paths and penalize alleys and driveways.
   return {sec * factor, sec};

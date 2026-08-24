@@ -1327,6 +1327,29 @@ protected:
                : 1.0f;
   }
 
+  /**
+   * Set the dirt-first strength and precompute the per-Surface multiplier
+   * table. Unlike the adventure-riding axis this keys on the Surface field
+   * every DirectedEdge already carries, so it needs no EdgeInfo fetch on the
+   * hot path and no tile rebuild — stock tiles work.
+   * @param use_dirt_first strength in [0; 1] from
+   *   `Costing.Options.use_dirt_first` (proto field 100). 0 = off.
+   */
+  virtual void set_use_dirt_first(float use_dirt_first);
+
+  /**
+   * Hot-path lookup for the dirt-first axis: multiply the caller's EdgeCost
+   * factor by the precomputed per-Surface multiplier. The guard keeps stock
+   * requests (strength 0, the default) bitwise identical to a build without
+   * this axis — not even a table read.
+   */
+  inline float DirtFirstMultiplier(const baldr::DirectedEdge* edge) const {
+    if (!dirt_first_active_) {
+      return 1.0f;
+    }
+    return dirt_first_factor_[static_cast<uint32_t>(edge->surface())];
+  }
+
   // Algorithm pass
   uint32_t pass_;
 
@@ -1382,6 +1405,15 @@ protected:
   // ETA reflect the rider. Overridden per-request via
   // `Costing.Options.adventure_riding_speed_factor` (proto field 99).
   float adventure_riding_speed_factor_;
+
+  // Dirt-first axis (`Costing.Options.use_dirt_first`, proto field 100).
+  // Per-Surface cost multipliers indexed by DirectedEdge::surface() (8
+  // values, kPavedSmooth..kImpassable), interpolated between neutral (all
+  // 1.0 at strength 0) and the full-strength table in dynamiccost.cc.
+  // dirt_first_active_ guards the hot path so stock requests never even
+  // read the table.
+  bool dirt_first_active_ = false;
+  float dirt_first_factor_[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 
   // Transition costs
   sif::Cost country_crossing_cost_;
@@ -1574,6 +1606,12 @@ protected:
       adventure_riding_speed_factor_ = costing_options.adventure_riding_speed_factor();
     }
 
+    // Dirt-first axis: collapse the strength into the per-Surface multiplier
+    // table once, here, so the EdgeCost hot path is a guarded array lookup.
+    if (costing_options.has_use_dirt_first()) {
+      set_use_dirt_first(costing_options.use_dirt_first());
+    }
+
     // Penalty and factor to use service roads
     service_penalty_ = costing_options.service_penalty();
     service_factor_ = costing_options.service_factor();
@@ -1708,6 +1746,10 @@ struct BaseCostingOptionsConfig {
   ranged_default_t<float> use_adventure_riding_;
   ranged_default_t<float> use_adventure_riding_curve_;
   ranged_default_t<float> adventure_riding_speed_factor_;
+  // Dirt-first strength [0,1]. 0 = off (stock routing); 1 = full paved-as-
+  // connector-only inversion. Keys on DirectedEdge::surface(), so it works
+  // on stock tiles. See DynamicCost::set_use_dirt_first.
+  ranged_default_t<float> use_dirt_first_;
 
   ranged_default_t<float> closure_factor_;
   ranged_default_t<float> speed_penalty_factor_;

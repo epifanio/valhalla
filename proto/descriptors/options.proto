@@ -395,6 +395,18 @@ message Costing {
     oneof has_adventure_riding_speed_factor {
       float adventure_riding_speed_factor = 99;
     }
+    // Dirt-first routing: invert the paved/unpaved preference so unpaved
+    // surfaces are the route material and tarmac is only a connector.
+    // Keys on the per-edge Surface field already stored in every DirectedEdge
+    // (works on stock tiles — no tile rebuild, no TaggedValue needed).
+    //   0.0 = off / stock routing (default)
+    //   1.0 = full strength: paved edges cost ~3x, gravel/dirt ~0.4x
+    // Intermediate values interpolate each per-Surface multiplier linearly
+    // between 1.0 and its full-strength value. Range [0, 1]; clamped via
+    // ranged_default_t. epifanio/valhalla feat/adventure-riding.
+    oneof has_use_dirt_first {
+      float use_dirt_first = 100;
+    }
   }
 
   oneof has_options {
