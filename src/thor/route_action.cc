@@ -364,6 +364,23 @@ void thor_worker_t::route(Api& request) {
     add_cost_factor_edges(mode_costing, mode, *reader, *request.mutable_options(),
                           min_linear_cost_factor, max_linear_cost_edges);
   }
+
+  // Edges the caller supplied directly (see ParseBaseCostOptions) never passed
+  // through add_cost_factor_edges, so they have not met the service limits yet.
+  // Apply the same ones here rather than in the parser: this is where the
+  // limits live, and it keeps both routes to a cost factor under one rule.
+  {
+    auto costings = request.mutable_options()->mutable_costings();
+    auto found = costings->find(request.options().costing_type());
+    if (found != costings->end()) {
+      auto* opts = found->second.mutable_options();
+      if (static_cast<uint64_t>(opts->cost_factor_edges_size()) > max_linear_cost_edges)
+        throw valhalla_exception_t{234};
+      for (auto& e : *opts->mutable_cost_factor_edges())
+        e.set_factor(std::max(e.factor(), min_linear_cost_factor));
+    }
+  }
+
   auto costing = parse_costing(request);
 
   // get all the legs
