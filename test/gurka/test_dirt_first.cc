@@ -36,6 +36,14 @@ float leg_time_sec(const valhalla::Api& route) {
   return route.directions().routes(0).legs(0).summary().time();
 }
 
+float total_time_sec(const valhalla::Api& route) {
+  float t = 0.f;
+  for (const auto& leg : route.directions().routes(0).legs()) {
+    t += leg.summary().time();
+  }
+  return t;
+}
+
 } // namespace
 
 // Two routes from A to C over the SAME highway class, so class factors and
@@ -144,6 +152,22 @@ TEST_F(DirtFirstTest, UntaggedTrackCountsAsDirt) {
     auto dirt = gurka::do_action(valhalla::Options::route, track_map, {"A", "C"}, c,
                                  dirt_first_options(c, "1"));
     gurka::assert::raw::expect_path(dirt, {"AD", "DE", "EC"});
+  }
+}
+
+// The speed floor: stock tiles store 5 km/h (halved to 2 for the dirt
+// surface) on untagged tracks — a crawling car, not a dirt bike. With
+// dirt-first at full strength the same forced track route (via D) must get
+// dramatically faster wall-clock time from the 30 km/h floor. Uses a 5x
+// bound (actual is ~10-15x) to stay robust to transition-cost noise.
+TEST_F(DirtFirstTest, SpeedFloorMakesTrackTimeSane) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    auto stock = gurka::do_action(valhalla::Options::route, track_map, {"A", "D", "C"}, c,
+                                  dirt_first_options(c, ""));
+    auto floored = gurka::do_action(valhalla::Options::route, track_map, {"A", "D", "C"}, c,
+                                    dirt_first_options(c, "1"));
+    EXPECT_GE(total_time_sec(stock), 5.f * total_time_sec(floored));
   }
 }
 

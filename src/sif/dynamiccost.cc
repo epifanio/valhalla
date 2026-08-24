@@ -145,6 +145,25 @@ constexpr float kDirtFirstFullFactor[] = {
     0.8f,  // kPath
     1.0f,  // kImpassable
 };
+// Full-strength speed floors (km/h) for motor profiles on unpaved surfaces
+// (DynamicCost::DirtFirstSpeed). The graph's classified defaults for
+// surface=dirt tracks are 5 km/h halved to 2 by lua/graph.lua's unpaved
+// rule — measured on live EU tiles: real untagged Norwegian tracks carry
+// 2 km/h. That describes a car crawling, not a dirt bike; it makes tracks
+// unroutable under any cost table and their ETAs pathological. 30 km/h is
+// the adventure-riding consensus pace for forestry track (the TET
+// augmentation uses maxspeed=40 for curated trails); kPath stays lower.
+// At strength d each floor scales linearly: round(d * full).
+constexpr uint32_t kDirtFirstFullSpeedFloor[] = {
+    0,  // kPavedSmooth
+    0,  // kPaved
+    0,  // kPavedRough
+    30, // kCompacted
+    30, // kDirt
+    30, // kGravel
+    15, // kPath
+    0,  // kImpassable
+};
 
 // How much to avoid generic service roads.
 constexpr float kDefaultServiceFactor = 1.0f;
@@ -502,17 +521,20 @@ void DynamicCost::set_use_adventure_riding(float use_adventure_riding) {
 
 void DynamicCost::set_use_dirt_first(float use_dirt_first) {
   if (use_dirt_first <= 0.f) {
-    // Off — restore the neutral table so a reused costing object can't leak
+    // Off — restore the neutral tables so a reused costing object can't leak
     // a previous request's preference.
     dirt_first_active_ = false;
-    for (auto& f : dirt_first_factor_) {
-      f = 1.0f;
+    for (size_t i = 0; i < 8; ++i) {
+      dirt_first_factor_[i] = 1.0f;
+      dirt_first_speed_floor_[i] = 0;
     }
     return;
   }
   dirt_first_active_ = true;
   for (size_t i = 0; i < 8; ++i) {
     dirt_first_factor_[i] = 1.0f + use_dirt_first * (kDirtFirstFullFactor[i] - 1.0f);
+    dirt_first_speed_floor_[i] =
+        static_cast<uint32_t>(use_dirt_first * kDirtFirstFullSpeedFloor[i] + 0.5f);
   }
 }
 

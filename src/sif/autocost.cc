@@ -504,6 +504,8 @@ Cost AutoCost::EdgeCost(const baldr::DirectedEdge* edge,
                         : fixed_speed_;
 
   auto final_speed = std::min(edge_speed, top_speed_);
+  // Dirt-first: floor the crawling-car default speeds on unpaved surfaces.
+  final_speed = DirtFirstSpeed(edge, final_speed);
 
   float sec = edge->length() * kSpeedFactor[final_speed];
   // Rider-skill speed scaler on adventure-riding edges. No-op early return
