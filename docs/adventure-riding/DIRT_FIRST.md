@@ -76,6 +76,34 @@ The gradient this buys at intermediate strengths: ~0.5 takes good gravel
 roads and mild tracks; strength → 1 treats slow tracks as route material
 outright.
 
+## Presets (calibrated on NO+SE fixtures, 2026-08-24)
+
+Measured with the fork service against the live EU tileset (motorcycle,
+`use_tracks=1`, `use_trails=1`; %unpaved via trace_attributes on the
+returned shape):
+
+| fixture | 0 | 0.3 | 0.5 | 0.7 | 1.0 |
+|---|---|---|---|---|---|
+| SE Torsby→Sysslebäck %unpaved | 0 | 14.7 | 39.7 | 56.2 | 76.8 |
+| NO Hedalen (TET-N-01 area) %unpaved | 15.9 | 37.9 | 37.9 | 37.9 | 83.3 |
+| NO Lillehammer→Beitostølen %unpaved | 0 | 0 | 0 | 0 | 0 |
+| SE Falun→Rättvik %unpaved | 0 | 0 | 0 | 2.8 | 2.8 |
+
+Lillehammer→Beitostølen is the honest negative control: a mountain crossing
+with no continuous unpaved alternative — dirt-first doesn't invent dirt.
+
+Recommended rider presets (server + mobile). Every preset ships the
+companions `use_tracks=1` and (motorcycle) `use_trails=1` — without them
+stock track-avoidance (auto: 300 s track_penalty + track_factor;
+motorcycle: surface_factor) suppresses the axis:
+
+| preset | use_dirt_first | behaviour |
+|---|---|---|
+| Off | unset | stock routing |
+| Light | 0.35 | gravel when it's roughly on the way |
+| Moderate | 0.6 | seeks gravel corridors, accepts real detours |
+| Strong | 1.0 | tarmac connector-only; slow tracks are route material |
+
 ## Why Surface is a safe key (Phase-0 ground truth, 2026-08-24)
 
 Probed the live EU tileset (`/locate` verbose) against OSM ground truth
