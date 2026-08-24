@@ -36,14 +36,32 @@ at strength `d` each multiplier interpolates `1 + d * (full − 1)`:
 
 | Surface | full-strength × | note |
 |---|---|---|
-| paved_smooth | 6.0 | tarmac = connector only |
-| paved | 6.0 | |
-| paved_rough | 4.0 | cobbles: still pavement |
-| compacted | 0.3 | maintained gravel — prime material |
-| dirt | 0.3 | **includes every untagged `highway=track`** |
-| gravel | 0.35 | |
-| path | 0.8 | rideable but not sought |
-| impassable | 1.0 | `Allowed()`'s problem |
+| paved_smooth | 1.0 | **stock — never inflated** |
+| paved | 1.0 | |
+| paved_rough | 0.7 | cobbles have character; mild preference |
+| compacted | 0.05 | maintained gravel — prime material |
+| dirt | 0.05 | **includes every untagged `highway=track`** |
+| gravel | 0.06 | |
+| path | 0.15 | rideable but rough; sought less than a good track |
+| impassable | 1.0 | neutral — never sought |
+
+⚠️ **Never put a value above 1.0 in this table.** Penalizing paved instead of
+discounting dirt looks equivalent — same dirt:paved ratio — but is not.
+Valhalla adds transition costs (maneuver, gate, toll booth, country crossing)
+in *seconds*, unscaled by the surface factor. An earlier table used paved 6.0
+/ dirt 0.3, which made those penalties 6× cheaper in relative terms and
+distorted every non-surface decision: Bergen→Göteborg at strength 1.0 came
+back **shorter and faster than stock** (810 km / 11.8 h vs 967 km / 14.0 h) —
+a twistier *tarmac* path bought with maneuver penalties that no longer
+mattered. Pinning paved at 1.0 leaves the whole paved network behaving
+exactly as stock, so the axis only ever moves the dirt-vs-paved decision.
+
+Interpolation is **geometric**: `pow(full, strength)`. Linear interpolation
+collapses the mid-strength gradient once paved is pinned at 1.0 — at
+strength 0.6 dirt would land on 0.43, which against the ~4× time handicap of
+a 30 km/h track vs an 80 km/h road leaves dirt *more* expensive than tarmac,
+i.e. "Moderate" would do nothing. `pow()` keeps each step a constant fraction
+of the full discount and still gives an exact no-op at strength 0.
 
 Out-of-range values snap to the **default (off)** per `ranged_default_t` —
 not to the nearest bound.
@@ -65,7 +83,9 @@ edge speed on unpaved surfaces via `DirtFirstSpeed()`:
 | path | 15 km/h |
 | paved* / impassable | none |
 
-The floor scales with strength (`round(d × full)`), never *lowers* a speed
+The floor does NOT scale with strength — it corrects bogus *data*, not a
+preference (a rider on the mildest setting still isn't doing 2 km/h on a
+forestry track, and their ETA should say so). It never *lowers* a speed
 (tagged-fast edges keep theirs), and affects both routing and the reported
 ETA — which is the honest number for a dirt bike. 30 km/h matches the
 adventure-riding consensus pace for forestry track (the TET augmentation
@@ -76,41 +96,67 @@ The gradient this buys at intermediate strengths: ~0.5 takes good gravel
 roads and mild tracks; strength → 1 treats slow tracks as route material
 outright.
 
-## Presets (calibrated on NO+SE fixtures, 2026-08-24)
+## Presets (re-calibrated on the geometric curve, 2026-08-24)
 
-Measured with the fork service against the live EU tileset (motorcycle,
-`use_tracks=1`, `use_trails=1`; %unpaved via trace_attributes on the
-returned shape):
+% unpaved of the returned route, motorcycle with the companions below,
+measured against the live EU tileset:
 
-| fixture | 0 | 0.3 | 0.5 | 0.7 | 1.0 |
-|---|---|---|---|---|---|
-| SE Torsby→Sysslebäck %unpaved | 0 | 14.7 | 39.7 | 56.2 | 76.8 |
-| NO Hedalen (TET-N-01 area) %unpaved | 15.9 | 37.9 | 37.9 | 37.9 | 83.3 |
-| NO Lillehammer→Beitostølen %unpaved | 0 | 0 | 0 | 0 | 0 |
-| SE Falun→Rättvik %unpaved | 0 | 0 | 0 | 2.8 | 2.8 |
+| fixture | 0 | 0.2 | 0.35 | 0.5 | 0.6 | 0.8 | 1.0 |
+|---|---|---|---|---|---|---|---|
+| SE Torsby→Sysslebäck | 8.9 | 18.4 | 18.4 | 66.6 | **82.6** | 79.1 | 70.8 |
+| NO Hedalen local | 10.3 | 30.4 | 37.4 | 37.1 | 37.1 | 37.4 | 37.4 |
+| SE Falun→Rättvik | 0 | 0 | 0 | 3.4 | 47.6 | 50.9 | **60.4** |
+| SE Karlstad→Falun | 5.9 | 9.5 | 24.7 | **42.0** | 36.0 | 39.6 | 39.6 |
+| NO Lillehammer→Beitostølen | 23.0 | 23.0 | 23.0 | 23.0 | 23.0 | 23.0 | 23.0 |
 
-Lillehammer→Beitostølen is the honest negative control: a mountain crossing
-with no continuous unpaved alternative — dirt-first doesn't invent dirt.
+Lillehammer→Beitostølen is the honest negative control: flat at every
+strength, because that mountain crossing has no unpaved *alternative* —
+dirt-first doesn't invent dirt. The curve is not strictly monotonic (a
+bigger discount can select a different corridor whose connectors are paved);
+0.5–0.6 is where most fixtures make their jump.
 
-Recommended rider presets (server + mobile). Every preset ships the
-companions `use_tracks=1` and (motorcycle) `use_trails=1` — without them
-stock track-avoidance (auto: 300 s track_penalty + track_factor;
-motorcycle: surface_factor) suppresses the axis:
+| preset | use_dirt_first | behaviour |
+|---|---|---|
+| Off | unset | stock routing |
+| Light | 0.35 | gravel when it's roughly on the way |
+| Moderate | 0.6 | seeks gravel corridors, accepts real detours |
+| Strong | 1.0 | tarmac connector-only; slow tracks are route material |
 
-| preset | use_dirt_first | use_ferry | behaviour |
-|---|---|---|---|
-| Off | unset | caller's | stock routing |
-| Light | 0.35 | 0.5 | gravel when it's roughly on the way |
-| Moderate | 0.6 | 0.3 | seeks gravel corridors, accepts real detours |
-| Strong | 1.0 | 0.2 | tarmac connector-only; slow tracks are route material |
+Companions every active preset must send — without them stock
+track-avoidance (auto: 300 s `track_penalty` + `track_factor`; motorcycle:
+`surface_factor`) suppresses the axis:
+`use_tracks=1`, `use_trails=1` (motorcycle), `avoid_bad_surfaces=0`.
 
-`use_ferry` joined the companion set after the Bergen→Göteborg field report
-(2026-08-24): the engine scales ferry edges like smooth tarmac
-(`DirtFirstFerryMultiplier` — without it the ferry early-return in
-motor/bicycle/pedestrian EdgeCost made long crossings free connectors), but
-a high caller `use_ferry` (the app's fjord-touring 0.8) still keeps
-ferry-dominant corridors on the boats. Lowering it with strength sends the
-route overland; ferries remain costed, never blocked.
+**`use_ferry` is deliberately NOT a companion.** A preset briefly forced it
+down after a Bergen→Göteborg field report came back as a ferry chain.
+Measurement killed the idea: the override changes nothing where dirt-first
+works (Torsby returns 82.6% unpaved at `use_ferry` 0.8, 0.5 and 0.3 alike)
+and is the *only* thing that moves a route where dirt-first is inert
+(Bergen→Göteborg is 0.0% unpaved at every strength). It was never biasing
+surface — it was silently overriding the rider's own ferry preference on
+transit routes. The loophole that prompted it is fixed structurally instead
+(paved pinned at 1.0 ⇒ ferries cost exactly what stock costs them).
+
+## How far dirt-first reaches
+
+Achievable unpaved share decays with trip length, because unpaved networks
+are *local* — there is no continuous gravel corridor across a continent.
+Measured at Strong:
+
+| route | length | unpaved |
+|---|---|---|
+| Torsby→Sysslebäck | 117 km | 70.8% |
+| Karlstad→Falun | 282 km | 39.6% |
+| Oslo→Trondheim | 638 km | 12.2% |
+| Bergen→Göteborg | 974 km | ~1% |
+
+This is a property of the road network, not a tuning failure:
+`disable_hierarchy_pruning=true` changes **nothing** (verified — identical
+routes and shares at every distance above), so it is not an artifact of
+Valhalla's hierarchical A* skipping local edges. Dirt-first is a ride-scale
+feature; on a long transit it correctly reports that no unpaved corridor
+exists rather than inventing one. Clients should say so — FastGIS shows
+"No unpaved roads on this route" instead of a bare 0%.
 
 ## Why Surface is a safe key (Phase-0 ground truth, 2026-08-24)
 
