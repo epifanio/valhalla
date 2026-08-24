@@ -574,6 +574,34 @@ void ParseBaseCostOptions(const rapidjson::Value& json,
     c->set_name(*name);
   }
 
+  // Per-edge cost factors supplied DIRECTLY by the caller, as {id, factor,
+  // start, end}. Valhalla can already derive these itself from
+  // `linear_cost_factors` shapes, but that path map-matches every line on every
+  // request — and it does not work through JSON at all: neither parse_line nor
+  // parse_line_geojson fills LinearFeatureCost.locations, which
+  // RouteMatcher::FormPath requires, so it fails with "No suitable edges near
+  // location" before it reaches the graph.
+  //
+  // Supplying edges directly is also the better shape for a scored-roads
+  // overlay: resolve road geometry to edge ids ONCE, offline, and a request
+  // then costs a lookup instead of a map-match. The caller owns the mapping and
+  // must re-bake it when the tileset changes.
+  //
+  // Factors are clamped against service_limits.min_linear_cost_factor in thor,
+  // the same place the shape-derived ones are.
+  auto cost_factor_edges = rapidjson::get_child_optional(json, "/cost_factor_edges");
+  if (cost_factor_edges && cost_factor_edges->IsArray()) {
+    for (const auto& cfe : cost_factor_edges->GetArray()) {
+      if (!cfe.IsObject() || !cfe.HasMember("id") || !cfe.HasMember("factor"))
+        continue;
+      auto* e = co->add_cost_factor_edges();
+      e->set_id(cfe["id"].GetUint64());
+      e->set_factor(cfe["factor"].GetDouble());
+      e->set_start(cfe.HasMember("start") ? cfe["start"].GetDouble() : 0.0);
+      e->set_end(cfe.HasMember("end") ? cfe["end"].GetDouble() : 1.0);
+    }
+  }
+
   // various traversability flags
   JSON_PBF_DEFAULT_V2(co, false, json, "/ignore_restrictions", ignore_restrictions);
   JSON_PBF_DEFAULT_V2(co, false, json, "/ignore_oneways", ignore_oneways);
