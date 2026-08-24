@@ -14,6 +14,7 @@
 
 #include <boost/property_tree/ptree.hpp>
 
+#include <array>
 #include <filesystem>
 #include <random>
 #include <thread>
@@ -112,9 +113,29 @@ void add_elevations_to_single_tile(GraphReader& graphreader,
                                    std::mutex& graphreader_lck,
                                    cache_t& cache,
                                    const std::unique_ptr<valhalla::skadi::sample>& sample,
-                                   GraphId& tile_id) {
+                                   GraphId& tile_id,
+                                   bool store_profile) {
   // Get the tile. Serialize the entire tile?
   GraphTileBuilder tilebuilder(graphreader.tile_dir(), tile_id, true);
+
+  // These are FINISHED tiles: unlike the build pipeline (where the elevation stage runs
+  // before validate, so no bins exist yet) they already carry the edge bins loki uses as
+  // its spatial index. StoreTileData() writes no bin section but copies the header
+  // verbatim, so the bin offsets would survive pointing at bytes that are gone — every
+  // /locate then reads garbage GraphIds. Keep the bins, zero the offsets across the
+  // rewrite, and append them again afterwards. They stay valid because adding elevation
+  // changes no edge index and no edge count.
+  std::array<std::vector<GraphId>, kBinCount> bins;
+  bool has_bins = false;
+  for (size_t i = 0; i < kBinCount; ++i) {
+    auto bin = tilebuilder.GetBin(i % kBinsDim, i / kBinsDim);
+    bins[i].assign(bin.begin(), bin.end());
+    has_bins = has_bins || !bins[i].empty();
+  }
+  if (has_bins) {
+    const uint32_t no_bins[kBinCount] = {};
+    tilebuilder.header_builder().set_edge_bin_offsets(no_bins);
+  }
 
   // Set the has_elevation flag. TODO - do we need to know if any elevation is actually
   // retrieved/used?
@@ -219,12 +240,17 @@ void add_elevations_to_single_tile(GraphReader& graphreader,
 
       // Encode elevation along the edge and add to EdgeInfo along with the mean elevation.
       // Bridges, tunnels, ferries are special cases. Increment the new edge info offset.
+      // The encoded profile is ~1 byte per 60 m of every edge and is the bulk of the
+      // tile growth riders re-download; grade + mean elevation (what costing reads) cost
+      // nothing extra. additional_data.elevation_profile=false keeps the cheap half.
       std::vector<int8_t> encoded;
       auto wayid = tilebuilder.edgeinfo(&directededge).wayid();
-      if (directededge.bridge() || directededge.tunnel() || directededge.use() == Use::kFerry) {
-        encoded = encode_btf_elevation(sample, shape, length, wayid);
-      } else {
-        encoded = encode_edge_elevation(sample, shape, length, wayid);
+      if (store_profile) {
+        if (directededge.bridge() || directededge.tunnel() || directededge.use() == Use::kFerry) {
+          encoded = encode_btf_elevation(sample, shape, length, wayid);
+        } else {
+          encoded = encode_edge_elevation(sample, shape, length, wayid);
+        }
       }
       ei_offset += tilebuilder.set_elevation(edge_info_offset, mean_elevation, encoded);
     }
@@ -265,6 +291,12 @@ void add_elevations_to_single_tile(GraphReader& graphreader,
   // Update the tile
   tilebuilder.StoreTileData();
 
+  // Put the spatial index back on the tile we just rewrote.
+  if (has_bins) {
+    GraphTileBuilder::AddBins(graphreader.tile_dir(),
+                              GraphTile::Create(graphreader.tile_dir(), tile_id), bins);
+  }
+
   // Check if we need to clear the tile cache
   if (graphreader.OverCommitted()) {
     graphreader_lck.lock();
@@ -279,7 +311,8 @@ void add_elevations_to_single_tile(GraphReader& graphreader,
 void add_elevations_to_multiple_tiles(const boost::property_tree::ptree& pt,
                                       std::deque<GraphId>& tilequeue,
                                       std::mutex& lock,
-                                      const std::unique_ptr<valhalla::skadi::sample>& sample) {
+                                      const std::unique_ptr<valhalla::skadi::sample>& sample,
+                                      bool store_profile) {
   // Local Graphreader
   GraphReader graphreader(pt.get_child("mjolnir"));
 
@@ -300,7 +333,8 @@ void add_elevations_to_multiple_tiles(const boost::property_tree::ptree& pt,
     tilequeue.pop_front();
     lock.unlock();
 
-    add_elevations_to_single_tile(graphreader, lock, geo_attribute_cache, sample, tile_id);
+    add_elevations_to_single_tile(graphreader, lock, geo_attribute_cache, sample, tile_id,
+                                  store_profile);
   }
 }
 
@@ -341,14 +375,18 @@ void ElevationBuilder::Build(const boost::property_tree::ptree& pt,
   if (tile_ids.empty())
     tile_ids = get_tile_ids(pt);
 
+  const bool store_profile = pt.get<bool>("additional_data.elevation_profile", true);
+
   std::vector<std::shared_ptr<std::thread>> threads(nthreads);
 
   LOG_INFO("Adding elevation to " + std::to_string(tile_ids.size()) + " tiles with " +
-           std::to_string(nthreads) + " threads...");
+           std::to_string(nthreads) + " threads, encoded profile " +
+           (store_profile ? "ON" : "OFF") + "...");
   std::mutex lock;
   for (auto& thread : threads) {
     thread = std::make_shared<std::thread>(add_elevations_to_multiple_tiles, std::cref(pt),
-                                           std::ref(tile_ids), std::ref(lock), std::ref(sample));
+                                           std::ref(tile_ids), std::ref(lock), std::ref(sample),
+                                           store_profile);
   }
 
   for (auto& thread : threads) {

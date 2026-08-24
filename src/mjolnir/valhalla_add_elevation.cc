@@ -2,6 +2,7 @@
 #include "baldr/graphid.h"
 #include "baldr/graphreader.h"
 #include "baldr/graphtile.h"
+#include "midgard/logging.h"
 #include "mjolnir/elevationbuilder.h"
 #include "mjolnir/util.h"
 
@@ -90,16 +91,24 @@ int main(int argc, char** argv) {
     if (!parse_common_args(program, options, result, &config, true))
       return EXIT_SUCCESS;
 
-    if (!result.count("tiles")) {
-      std::cerr << "Tile file is required\n\n" << options.help() << "\n\n";
-      return EXIT_FAILURE;
-    } else {
-      for (const auto& tile : result["concurrency"].as<std::vector<std::string>>()) {
-        if (std::filesystem::exists(tile) && std::filesystem::is_regular_file(tile))
-          return EXIT_FAILURE;
+    // Upstream bug: this branch read result["concurrency"] (not "tiles") and then
+    // returned EXIT_FAILURE unconditionally, so the tool could never succeed.
+    // An empty tile list is also legitimate — ElevationBuilder::Build() then walks
+    // the whole tileset, which is what we want for a bulk pass.
+    if (result.count("tiles")) {
+      std::vector<std::string> valid;
+      const auto tile_dir = config.get<std::string>("mjolnir.tile_dir", "");
+      for (const auto& tile : tiles) {
+        if (std::filesystem::is_regular_file(std::filesystem::path{tile_dir + tile}))
+          valid.push_back(tile);
+        else
+          LOG_WARN("Skipping tile that is not a file under the tile_dir: " + tile);
       }
-      std::cerr << "All tile files are invalid\n\n" << options.help() << "\n\n";
-      return EXIT_FAILURE;
+      if (valid.empty()) {
+        std::cerr << "All tile files are invalid\n\n" << options.help() << "\n\n";
+        return EXIT_FAILURE;
+      }
+      tiles.swap(valid);
     }
   } catch (cxxopts::exceptions::exception& e) {
     std::cerr << e.what() << std::endl;
@@ -110,9 +119,9 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
-  // pass the deduplicated tiles
+  // pass the deduplicated tiles; an empty set means "every tile in the tileset"
   auto tile_ids = get_tile_ids(config, std::unordered_set<std::string>(tiles.begin(), tiles.end()));
-  if (tile_ids.empty()) {
+  if (!tiles.empty() && tile_ids.empty()) {
     std::cerr << "Failed to load tiles\n\n";
     return EXIT_FAILURE;
   }
