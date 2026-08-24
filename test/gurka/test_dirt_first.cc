@@ -11,18 +11,21 @@ namespace {
 // with src/sif/{auto,motorcycle,bicycle,pedestrian}cost.cc.
 const std::vector<std::string> kMotorCostings = {"auto", "motorcycle"};
 
-// Motorcycle's default use_trails=0 adds a large penalty on unpaved surfaces
-// (surface_factor_ * kSurfaceFactor) that composes with — and at default can
-// outweigh — the dirt-first discount. Dirt-first presets therefore pair
-// use_dirt_first with use_trails=1 for motorcycle; these tests do the same so
-// the only variable under test is the dirt-first axis itself. Auto has no
-// surface penalty, so it exercises the axis with no companion option.
+// Stock costing carries its own unpaved-avoidance machinery that composes
+// with — and at defaults can outweigh — the dirt-first discount:
+// motorcycle's use_trails=0 adds surface_factor_ * kSurfaceFactor on every
+// unpaved edge, and auto's use_tracks=0 adds a 300 s track_penalty_ plus a
+// large track_factor_ on Use::kTrack edges regardless of surface. A
+// dirt-first request must neutralise both (the server presets send exactly
+// these companions), so these tests do the same on control AND test
+// requests — the only variable under test is the dirt-first axis itself.
 std::unordered_map<std::string, std::string> dirt_first_options(const std::string& costing,
                                                                 const std::string& strength) {
   std::unordered_map<std::string, std::string> opts;
   if (!strength.empty()) {
     opts["/costing_options/" + costing + "/use_dirt_first"] = strength;
   }
+  opts["/costing_options/" + costing + "/use_tracks"] = "1";
   if (costing == "motorcycle") {
     opts["/costing_options/" + costing + "/use_trails"] = "1";
   }
