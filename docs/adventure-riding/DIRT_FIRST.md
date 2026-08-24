@@ -97,12 +97,20 @@ companions `use_tracks=1` and (motorcycle) `use_trails=1` — without them
 stock track-avoidance (auto: 300 s track_penalty + track_factor;
 motorcycle: surface_factor) suppresses the axis:
 
-| preset | use_dirt_first | behaviour |
-|---|---|---|
-| Off | unset | stock routing |
-| Light | 0.35 | gravel when it's roughly on the way |
-| Moderate | 0.6 | seeks gravel corridors, accepts real detours |
-| Strong | 1.0 | tarmac connector-only; slow tracks are route material |
+| preset | use_dirt_first | use_ferry | behaviour |
+|---|---|---|---|
+| Off | unset | caller's | stock routing |
+| Light | 0.35 | 0.5 | gravel when it's roughly on the way |
+| Moderate | 0.6 | 0.3 | seeks gravel corridors, accepts real detours |
+| Strong | 1.0 | 0.2 | tarmac connector-only; slow tracks are route material |
+
+`use_ferry` joined the companion set after the Bergen→Göteborg field report
+(2026-08-24): the engine scales ferry edges like smooth tarmac
+(`DirtFirstFerryMultiplier` — without it the ferry early-return in
+motor/bicycle/pedestrian EdgeCost made long crossings free connectors), but
+a high caller `use_ferry` (the app's fjord-touring 0.8) still keeps
+ferry-dominant corridors on the boats. Lowering it with strength sends the
+route overland; ferries remain costed, never blocked.
 
 ## Why Surface is a safe key (Phase-0 ground truth, 2026-08-24)
 
