@@ -201,7 +201,10 @@ The augmentation script doesn't need changes — its `source=TET` tag is already
 | 5. Costing read path + config-driven allow-list | ✅ done | `987c1db53` (+ `2df0c2f55`) |
 | 6. Tests (`gurka_adventure_riding` + edgeinfo round-trip) | ✅ done | `185c7efc3` (+ `af869d8f0`); EdgeInfo switch fix `cadafdd98` |
 
-**All six layers landed.** What remains for the wider rollout (outside the scope of this fork's plan):
+**All six layers landed.** A fourth costing axis — dirt-first routing
+(`use_dirt_first`, field 100): per-Surface paved/unpaved inversion that works
+on STOCK tiles, plus a motor-profile speed floor for 2 km/h default tracks —
+lives in [DIRT_FIRST.md](DIRT_FIRST.md). What remains for the wider rollout (outside the scope of this fork's plan):
 
 - **iOS/Android propagation** — point `epifanio/valhalla-mobile`'s `src/valhalla` submodule at this fork (see procedure earlier in the doc), expose `use_adventure_riding` on the Swift/Kotlin route-request wrapper.
 - **Per-country pipeline integration** — flip `mjolnir.adventure_riding_sources = {"TET": 1, …}` in the FastGIS country build configs and rebuild tiles. The `scripts/tet/*` augmentation pipeline already writes `source=TET`; no augmentation-script changes needed.
