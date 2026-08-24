@@ -45,14 +45,36 @@ at strength `d` each multiplier interpolates `1 + d * (full − 1)`:
 | path | 0.8 | rideable but not sought |
 | impassable | 1.0 | `Allowed()`'s problem |
 
-The 20× paved/dirt spread at full strength is deliberate: cost is
-per-*second*, and untagged tracks carry a **5 km/h default speed**
-(`lua/graph.lua`) — a ~10× time handicap against a 50 km/h connector road
-that a 3×/0.4× spread can never overcome. The interpolation then gives a
-useful gradient: at strength ~0.5 the route takes good gravel roads but
-still skips 5 km/h tracks; only strength → 1 treats slow tracks as route
-material outright. Out-of-range values snap to the **default (off)** per
-`ranged_default_t` — not to the nearest bound.
+Out-of-range values snap to the **default (off)** per `ranged_default_t` —
+not to the nearest bound.
+
+## The speed floor (motor profiles)
+
+Cost alone cannot make tracks routable: untagged tracks store a **5 km/h
+default halved to 2 km/h** by the lua's unpaved rule (measured on the live
+EU tiles — real untagged Norwegian tracks carry 2 km/h). That is a car
+crawling, not a dirt bike: a 20× time handicap no sane cost table
+overcomes, and every track ETA is pathological (10 km = 5 h).
+
+So when dirt-first is active, motor profiles (motorcycle, auto) floor the
+edge speed on unpaved surfaces via `DirtFirstSpeed()`:
+
+| Surface | full-strength floor |
+|---|---|
+| compacted / dirt / gravel | 30 km/h |
+| path | 15 km/h |
+| paved* / impassable | none |
+
+The floor scales with strength (`round(d × full)`), never *lowers* a speed
+(tagged-fast edges keep theirs), and affects both routing and the reported
+ETA — which is the honest number for a dirt bike. 30 km/h matches the
+adventure-riding consensus pace for forestry track (the TET augmentation
+uses `maxspeed=40` for curated trails). Bicycle and pedestrian profiles do
+NOT get the floor: their unpaved slowdowns are real.
+
+The gradient this buys at intermediate strengths: ~0.5 takes good gravel
+roads and mild tracks; strength → 1 treats slow tracks as route material
+outright.
 
 ## Why Surface is a safe key (Phase-0 ground truth, 2026-08-24)
 

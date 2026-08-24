@@ -1350,6 +1350,23 @@ protected:
     return dirt_first_factor_[static_cast<uint32_t>(edge->surface())];
   }
 
+  /**
+   * Companion to DirtFirstMultiplier for MOTOR profiles: floor the edge
+   * speed on unpaved surfaces. The graph's defaults for surface=dirt tracks
+   * (5 km/h, halved to 2 by the unpaved rule in lua/graph.lua) describe a
+   * car crawling, not a dirt bike; without this floor no cost table can make
+   * tracks routable AND every track ETA is pathological (10 km = 5 h). The
+   * floor scales with strength (precomputed in set_use_dirt_first) and never
+   * lowers a speed — tagged-fast edges keep their speed. Bicycle/pedestrian
+   * profiles must NOT call this: their unpaved slowdowns are real.
+   */
+  inline uint32_t DirtFirstSpeed(const baldr::DirectedEdge* edge, const uint32_t speed) const {
+    if (!dirt_first_active_) {
+      return speed;
+    }
+    return std::max(speed, dirt_first_speed_floor_[static_cast<uint32_t>(edge->surface())]);
+  }
+
   // Algorithm pass
   uint32_t pass_;
 
@@ -1414,6 +1431,9 @@ protected:
   // read the table.
   bool dirt_first_active_ = false;
   float dirt_first_factor_[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+  // Strength-scaled speed floors (km/h) for DirtFirstSpeed, indexed like
+  // dirt_first_factor_. All-zero = no flooring.
+  uint32_t dirt_first_speed_floor_[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
   // Transition costs
   sif::Cost country_crossing_cost_;
