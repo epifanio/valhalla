@@ -144,13 +144,14 @@ TEST_F(DirtFirstTest, UntaggedTrackCountsAsDirt) {
   }
 }
 
-// Out-of-range values clamp per ranged_default_t instead of erroring:
-// strength 5 clamps to 1 and still routes (on the dirt).
-TEST_F(DirtFirstTest, OutOfRangeClamps) {
+// Out-of-range values snap to the DEFAULT (0 = off) per ranged_default_t —
+// not to the nearest bound. A bogus strength must not error, and must not
+// accidentally give the caller full dirt-first either.
+TEST_F(DirtFirstTest, OutOfRangeSnapsToOff) {
   for (const auto& c : kMotorCostings) {
     SCOPED_TRACE("costing=" + c);
     auto result = gurka::do_action(valhalla::Options::route, gravel_map, {"A", "C"}, c,
                                    dirt_first_options(c, "5"));
-    gurka::assert::raw::expect_path(result, {"AD", "DE", "EC"});
+    gurka::assert::raw::expect_path(result, {"AB", "BC"});
   }
 }
