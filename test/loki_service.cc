@@ -601,6 +601,44 @@ TEST(LokiService, test_hierarchy_warning) {
   }
 }
 
+// Trace actions have no `locations`, only `shape`. check_hierarchy_distance used to walk the empty
+// locations field and segfault the whole service for any trace request with the option set -
+// even one with no shape at all.
+TEST(LokiService, test_hierarchy_pruning_on_trace_actions) {
+  auto cfg = make_config();
+  loki::loki_worker_t worker(cfg);
+
+  for (auto action : {Options_Action_trace_route, Options_Action_trace_attributes}) {
+    for (auto type : {Costing_Type_auto_, Costing_Type_motorcycle, Costing_Type_truck}) {
+      for (bool with_shape : {true, false}) {
+        Api request = {};
+        auto& options = *request.mutable_options();
+        options.set_action(action);
+        options.set_costing_type(type);
+        if (with_shape) {
+          for (auto ll : {std::make_pair(52.09f, 5.11f), std::make_pair(52.10f, 5.12f)}) {
+            auto* point = options.mutable_shape()->Add();
+            point->mutable_ll()->set_lat(ll.first);
+            point->mutable_ll()->set_lng(ll.second);
+          }
+        }
+        Costing costing;
+        costing.mutable_options()->set_disable_hierarchy_pruning(true);
+        options.mutable_costings()->insert({type, costing});
+
+        // no shape is a valid 114 error; the point is that it is not a crash
+        try {
+          worker.trace(request);
+        } catch (...) {}
+
+        EXPECT_FALSE(options.costings().find(type)->second.options().disable_hierarchy_pruning())
+            << Options_Action_Enum_Name(action) << " " << Costing_Enum_Name(type);
+        EXPECT_EQ(request.info().warnings_size(), 0);
+      }
+    }
+  }
+}
+
 } // namespace
 
 class LokiServiceEnv : public ::testing::Environment {
