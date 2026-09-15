@@ -1303,10 +1303,7 @@ protected:
     if (adventure_riding_factor_ >= 1.0f) {
       return 1.0f;
     }
-    const auto& tags = tile->edgeinfo(edge).GetTags();
-    return tags.find(baldr::TaggedValue::kAdventureRiding) != tags.end()
-               ? adventure_riding_factor_
-               : 1.0f;
+    return IsAdventureRidingEdge(edge, tile) ? adventure_riding_factor_ : 1.0f;
   }
 
   /**
@@ -1321,10 +1318,24 @@ protected:
     if (adventure_riding_speed_factor_ == 1.0f) {
       return 1.0f;
     }
-    const auto& tags = tile->edgeinfo(edge).GetTags();
-    return tags.find(baldr::TaggedValue::kAdventureRiding) != tags.end()
-               ? adventure_riding_speed_factor_
-               : 1.0f;
+    return IsAdventureRidingEdge(edge, tile) ? adventure_riding_speed_factor_ : 1.0f;
+  }
+
+  /**
+   * True when the edge carries a `TaggedValue::kAdventureRiding` entry.
+   * `GraphTile::edgeinfo()` returns the EdgeInfo BY VALUE and `GetTags()`
+   * returns a reference into it (its lazily built `tag_cache_`), so the
+   * EdgeInfo must outlive the lookup. Binding `edgeinfo(edge).GetTags()` to a
+   * reference directly left it dangling at the end of the statement: a
+   * use-after-free on every edge with any tagged value, which segfaulted the
+   * in-process iOS engine (valhalla-mobile 0.12.x, trace_route on Norwegian
+   * tracks with use_adventure_riding=0).
+   */
+  inline bool IsAdventureRidingEdge(const baldr::DirectedEdge* edge,
+                                    const baldr::graph_tile_ptr& tile) const {
+    const baldr::EdgeInfo edgeinfo = tile->edgeinfo(edge);
+    const auto& tags = edgeinfo.GetTags();
+    return tags.find(baldr::TaggedValue::kAdventureRiding) != tags.end();
   }
 
   /**
