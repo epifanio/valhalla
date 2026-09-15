@@ -402,7 +402,18 @@ void loki_worker_t::check_hierarchy_distance(Api& request) {
 
   // If disable_hierarchy_pruning is not true, skip the rest.
   auto costing_options = options.mutable_costings()->find(options.costing_type());
-  if (!costing_options->second.options().disable_hierarchy_pruning()) {
+  if (costing_options == options.mutable_costings()->end() ||
+      !costing_options->second.options().disable_hierarchy_pruning()) {
+    return;
+  }
+
+  // Trace actions carry their points in `shape`, never in `locations`, and map matching does not
+  // use hierarchy limits at all, so the option means nothing there. Turn it off rather than
+  // measure: walking the empty `locations` below dereferenced `end() - 1` of an empty field and
+  // segfaulted the service on any trace request that set the option.
+  if (options.action() == Options_Action_trace_route ||
+      options.action() == Options_Action_trace_attributes) {
+    costing_options->second.mutable_options()->set_disable_hierarchy_pruning(false);
     return;
   }
 
@@ -419,10 +430,10 @@ void loki_worker_t::check_hierarchy_distance(Api& request) {
       }
     }
   } else {
-    auto locations = options.locations();
+    const auto& locations = options.locations();
     float arc_distance = 0.0f;
-    for (auto source = locations.begin(); source != locations.end() - 1; ++source) {
-      arc_distance += to_ll(*source).Distance(to_ll(*(source + 1)));
+    for (int i = 1; i < locations.size(); ++i) {
+      arc_distance += to_ll(locations[i - 1]).Distance(to_ll(locations[i]));
       if (arc_distance > max_distance_disable_hierarchy_culling) {
         max_distance_exceeded = true;
         break;
