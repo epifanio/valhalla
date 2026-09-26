@@ -380,6 +380,21 @@ public:
    * origin).
    * @return Returns true if edge should be excluded.
    */
+  /**
+   * FastGIS fork: true when the rider asked to avoid tracks that are open only
+   * by the Norway/Denmark override (avoid_national_default_tracks) and this is a
+   * track edge in one of those countries. The country comes from the tile's admin
+   * info of the edge's end node (or, for an edge ending in another tile, from the
+   * tile's own admins when all of them are NO/DK). Zero cost unless the option is set.
+   */
+  inline bool IsNationalDefaultTrack(const baldr::DirectedEdge* edge,
+                                     const baldr::graph_tile_ptr& tile) const {
+    return avoid_national_default_tracks_ && edge->use() == baldr::Use::kTrack && tile &&
+           InNationalDefaultCountry(edge, tile);
+  }
+  bool InNationalDefaultCountry(const baldr::DirectedEdge* edge,
+                                const baldr::graph_tile_ptr& tile) const;
+
   template <bool FORWARD>
   inline bool CheckExclusions(const baldr::DirectedEdge* edge, const EdgeLabel& pred) const {
     auto isDriveOnto = [](bool condition, bool pred_condition) {
@@ -422,7 +437,7 @@ public:
    * @return true if the edge is allowed to be used (either as a candidate or a reach traversal)
    */
   inline virtual bool Allowed(const baldr::DirectedEdge* edge,
-                              const baldr::graph_tile_ptr&,
+                              const baldr::graph_tile_ptr& tile,
                               uint16_t disallow_mask = kDisallowNone) const {
     auto access_mask = (ignore_access_ ? baldr::kAllAccess : access_mask_);
     bool accessible = (edge->forwardaccess() & access_mask) ||
@@ -433,7 +448,8 @@ public:
         ((disallow_mask & kDisallowSimpleRestriction) && edge->restrictions()) ||
         ((disallow_mask & kDisallowShortcut) && edge->is_shortcut());
     return accessible && !assumed_restricted &&
-           ((edge->use() != baldr::Use::kConstruction) || ignore_construction_);
+           ((edge->use() != baldr::Use::kConstruction) || ignore_construction_) &&
+           !IsNationalDefaultTrack(edge, tile);
   }
 
   /**
@@ -1514,6 +1530,8 @@ protected:
   bool exclude_unpaved_{false};
   bool exclude_bridges_{false};
   bool exclude_tunnels_{false};
+  // FastGIS fork: see IsNationalDefaultTrack.
+  bool avoid_national_default_tracks_{false};
   bool exclude_tolls_{false};
   bool exclude_highways_{false};
   bool exclude_ferries_{false};
@@ -1682,6 +1700,7 @@ protected:
     has_excludes_ = exclude_bridges_ || exclude_tunnels_ || exclude_tolls_ || exclude_highways_ ||
                     exclude_ferries_;
     exclude_cash_only_tolls_ = costing_options.exclude_cash_only_tolls();
+    avoid_national_default_tracks_ = costing_options.avoid_national_default_tracks();
     default_hierarchy_limits = costing_options.hierarchy_limits_size() == 0;
   }
 
@@ -1808,6 +1827,7 @@ struct BaseCostingOptionsConfig {
   bool has_excludes_;
 
   bool exclude_cash_only_tolls_ = false;
+  bool avoid_national_default_tracks_ = false;
 
   bool include_hot_ = false;
   bool include_hov2_ = false;

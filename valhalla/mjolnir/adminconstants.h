@@ -70,12 +70,13 @@ const std::unordered_map<std::string, std::vector<int>>
                      (baldr::kPedestrianAccess | baldr::kWheelchairAccess | baldr::kBicycleAccess |
                       baldr::kMopedAccess),
                      -1}},
+                   // FastGIS fork (2026-09-26): track column -1, as Norway above.
                    {"Denmark",
                     {(baldr::kAutoAccess | baldr::kTruckAccess | baldr::kBusAccess |
                       baldr::kHOVAccess | baldr::kTaxiAccess | baldr::kMotorcycleAccess),
                      (baldr::kAutoAccess | baldr::kTruckAccess | baldr::kBusAccess |
                       baldr::kHOVAccess | baldr::kTaxiAccess | baldr::kMotorcycleAccess),
-                     (baldr::kPedestrianAccess | baldr::kWheelchairAccess | baldr::kBicycleAccess),
+                     -1,
                      -1, -1, -1,
                      (baldr::kPedestrianAccess | baldr::kWheelchairAccess | baldr::kBicycleAccess),
                      -1, -1}},
@@ -140,10 +141,11 @@ const std::unordered_map<std::string, std::vector<int>>
                      (baldr::kPedestrianAccess | baldr::kWheelchairAccess | baldr::kBicycleAccess |
                       baldr::kMopedAccess),
                      -1}},
+                   // FastGIS fork (2026-09-26): track column -1 — untagged tracks keep the lua
+                   // defaults (open to motor vehicles), as in Sweden/Finland. A rider can still
+                   // avoid them with the costing option avoid_national_default_tracks.
                    {"Norway",
-                    {-1, -1,
-                     (baldr::kPedestrianAccess | baldr::kWheelchairAccess | baldr::kBicycleAccess |
-                      baldr::kMopedAccess),
+                    {-1, -1, -1,
                      (baldr::kPedestrianAccess | baldr::kWheelchairAccess | baldr::kBicycleAccess),
                      (baldr::kPedestrianAccess | baldr::kWheelchairAccess | baldr::kBicycleAccess),
                      -1,
