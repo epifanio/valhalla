@@ -528,6 +528,25 @@ void DynamicCost::set_use_adventure_riding(float use_adventure_riding) {
   adventure_riding_factor_ = use_adventure_riding;
 }
 
+bool DynamicCost::InNationalDefaultCountry(const baldr::DirectedEdge* edge,
+                                           const baldr::graph_tile_ptr& tile) const {
+  auto national = [](const std::string& iso) { return iso == "NO" || iso == "DK"; };
+  const baldr::GraphId end = edge->endnode();
+  if (end.tile_base() == tile->id()) {
+    return national(tile->admininfo(tile->node(end)->admin_index()).country_iso());
+  }
+  const uint32_t count = tile->header()->admincount();
+  if (count == 0) {
+    return false;
+  }
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!national(tile->admininfo(i).country_iso())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void DynamicCost::set_use_dirt_first(float use_dirt_first) {
   if (use_dirt_first <= 0.f) {
     // Off — restore the neutral tables so a reused costing object can't leak
@@ -709,6 +728,8 @@ void ParseBaseCostOptions(const rapidjson::Value& json,
   JSON_PBF_DEFAULT_V2(co, cfg.exclude_highways_, json, "/exclude_highways", exclude_highways);
   JSON_PBF_DEFAULT_V2(co, cfg.exclude_ferries_, json, "/exclude_ferries", exclude_ferries);
 
+  JSON_PBF_DEFAULT_V2(co, cfg.avoid_national_default_tracks_, json, "/avoid_national_default_tracks",
+                      avoid_national_default_tracks);
   JSON_PBF_DEFAULT_V2(co, cfg.exclude_cash_only_tolls_, json, "/exclude_cash_only_tolls",
                       exclude_cash_only_tolls);
 

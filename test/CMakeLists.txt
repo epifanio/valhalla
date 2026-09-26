@@ -96,7 +96,7 @@ set(tests aabb2 access_restriction actor admin attributes_controller configurati
   incident_loading worker_nullptr_tiles curl_tilegetter filesystem_utils narrativebuilder util_odin)
 
 if(ENABLE_DATA_TOOLS)
-  list(APPEND tests astar multimodal_astar complexrestriction countryaccess graphbuilder graphparser
+  list(APPEND tests astar multimodal_astar complexrestriction countryaccess national_track_default graphbuilder graphparser
     graphtilebuilder graphreader hierarchylimits isochrone predictive_traffic idtable mapmatch matrix matrix_bss minbb multipoint_routes
     names node_search reach recover_shortcut refs servicedays shape_attributes signinfo summary urban tar_index
     thor_worker timedep_paths timeparsing trivial_paths uniquenames util_mjolnir utrecht lua alternates)

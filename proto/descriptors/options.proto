@@ -438,6 +438,14 @@ message Costing {
     oneof has_max_difficulty {
       float max_difficulty = 102;
     }
+    // Norway + Denmark: the fork opens untagged highway=track to motor vehicles
+    // (kCountryAccess track column -1). true = the rider avoids them again: a
+    // track edge in NO/DK is not allowed for this request. Decided at route
+    // time from the tile's admin info — no tile marker, so tiles stay readable
+    // by older engines. Also avoids the few NO/DK tracks OSM explicitly opens
+    // (the tile cannot tell them apart after the override). Default false.
+    // epifanio/valhalla feat/national-track-default.
+    bool avoid_national_default_tracks = 103;
   }
 
   oneof has_options {
