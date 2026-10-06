@@ -730,6 +730,10 @@ void ParseBaseCostOptions(const rapidjson::Value& json,
 
   JSON_PBF_DEFAULT_V2(co, cfg.avoid_national_default_tracks_, json, "/avoid_national_default_tracks",
                       avoid_national_default_tracks);
+  // FastGIS fork (tet-recovery WP-4): access-ban lifts, see options.proto.
+  JSON_PBF_DEFAULT_V2(co, false, json, "/lift_motor_access_bans", lift_motor_access_bans);
+  JSON_PBF_DEFAULT_V2(co, false, json, "/lift_private_access", lift_private_access);
+  JSON_PBF_DEFAULT_V2(co, false, json, "/lift_node_access_bans", lift_node_access_bans);
   JSON_PBF_DEFAULT_V2(co, cfg.exclude_cash_only_tolls_, json, "/exclude_cash_only_tolls",
                       exclude_cash_only_tolls);
 

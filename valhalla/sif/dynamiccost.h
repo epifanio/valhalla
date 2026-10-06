@@ -419,8 +419,63 @@ public:
    * @return  Returns true if access is allowed, false if not.
    */
   inline virtual bool Allowed(const baldr::NodeInfo* node) const {
-    return ((node->access() & access_mask_) || ignore_access_) &&
+    return ((node->access() & access_mask_) || ignore_access_ || IsLiftedNode(node)) &&
            !(exclude_cash_only_tolls_ && node->cash_only_toll());
+  }
+
+  /**
+   * FastGIS fork (tet-recovery WP-4): true when lift_node_access_bans is set and
+   * this is a gate (NodeType kGate, which includes lift gates) that some mode may
+   * pass. Fixed bollards and sump busters are physical and stay closed.
+   */
+  inline bool IsLiftedNode(const baldr::NodeInfo* node) const {
+    return lift_node_access_bans_ && node->type() == baldr::NodeType::kGate &&
+           (node->access() & baldr::kAllAccess);
+  }
+
+  /**
+   * FastGIS fork (tet-recovery WP-4): true when lift_motor_access_bans makes an
+   * edge usable that the access mask closes to this vehicle. The edge must be
+   * open to some other mode in its forward direction (a vehicle's oneway is kept
+   * when the edge has any vehicle access at all; a foot-only edge counts its
+   * pedestrian access; a bridleway, open to no modelled mode, counts as open),
+   * must not be destination_only or closed to every mode (access=no) unless
+   * lift_private_access is set too, and its use must be one a vehicle can
+   * physically ride.
+   * Zero cost unless the option is set.
+   */
+  inline bool IsLiftedEdge(const baldr::DirectedEdge* edge) const {
+    if (!lift_motor_access_bans_ || (edge->destonly() && !lift_private_access_)) {
+      return false;
+    }
+    switch (edge->use()) {
+      case baldr::Use::kSteps:
+      case baldr::Use::kElevator:
+      case baldr::Use::kEscalator:
+      case baldr::Use::kPlatform:
+      case baldr::Use::kFerry:
+      case baldr::Use::kRailFerry:
+      case baldr::Use::kConstruction:
+        return false;
+      default:
+        break;
+    }
+    if (static_cast<uint8_t>(edge->use()) >= static_cast<uint8_t>(baldr::Use::kRail)) {
+      return false;
+    }
+    constexpr uint32_t kVehicles = baldr::kVehicularAccess | baldr::kBicycleAccess |
+                                   baldr::kEmergencyAccess;
+    const uint32_t any = edge->forwardaccess() | edge->reverseaccess();
+    if (any == 0) {
+      // Closed to every mode the engine models: a bridleway (horses are not
+      // modelled) is a motor-vehicle ban in practice; anything else (access=no)
+      // is a general ban, lifted only with lift_private_access.
+      return edge->use() == baldr::Use::kBridleway || lift_private_access_;
+    }
+    const uint32_t modes = (any & kVehicles)
+                               ? kVehicles
+                               : (baldr::kPedestrianAccess | baldr::kWheelchairAccess);
+    return (edge->forwardaccess() & modes) != 0;
   }
 
   /**
@@ -441,7 +496,8 @@ public:
                               uint16_t disallow_mask = kDisallowNone) const {
     auto access_mask = (ignore_access_ ? baldr::kAllAccess : access_mask_);
     bool accessible = (edge->forwardaccess() & access_mask) ||
-                      (ignore_oneways_ && (edge->reverseaccess() & access_mask));
+                      (ignore_oneways_ && (edge->reverseaccess() & access_mask)) ||
+                      IsLiftedEdge(edge);
     bool assumed_restricted =
         ((disallow_mask & kDisallowStartRestriction) && edge->start_restriction()) ||
         ((disallow_mask & kDisallowEndRestriction) && edge->end_restriction()) ||
@@ -466,6 +522,8 @@ public:
     return (edge->forwardaccess() & access_mask_) ||
            (ignore_access_ && (edge->forwardaccess() & baldr::kAllAccess)) ||
            (ignore_oneways_ && (edge->reverseaccess() & access_mask_)) ||
+           // OR the rider lifted the ban for this request (FastGIS fork)
+           IsLiftedEdge(edge) ||
            // OR it is under construction but you choose to ignore that
            (ignore_construction_ && edge->use() == baldr::Use::kConstruction);
   }
@@ -1543,6 +1601,10 @@ protected:
   bool exclude_tunnels_{false};
   // FastGIS fork: see IsNationalDefaultTrack.
   bool avoid_national_default_tracks_{false};
+  // FastGIS fork (tet-recovery WP-4): see IsLiftedEdge and IsLiftedNode.
+  bool lift_motor_access_bans_{false};
+  bool lift_private_access_{false};
+  bool lift_node_access_bans_{false};
   bool exclude_tolls_{false};
   bool exclude_highways_{false};
   bool exclude_ferries_{false};
@@ -1712,6 +1774,9 @@ protected:
                     exclude_ferries_;
     exclude_cash_only_tolls_ = costing_options.exclude_cash_only_tolls();
     avoid_national_default_tracks_ = costing_options.avoid_national_default_tracks();
+    lift_motor_access_bans_ = costing_options.lift_motor_access_bans();
+    lift_private_access_ = costing_options.lift_private_access();
+    lift_node_access_bans_ = costing_options.lift_node_access_bans();
     default_hierarchy_limits = costing_options.hierarchy_limits_size() == 0;
   }
 
@@ -1755,7 +1820,7 @@ protected:
 
     // Additional penalties without any time cost
     const bool is_destonly = (is_hgv() && edge->destonly_hgv()) || (!is_hgv() && edge->destonly());
-    c.cost += destination_only_penalty_ * (is_destonly && !pred->destonly());
+    c.cost += destination_only_penalty_ * (is_destonly && !pred->destonly() && !lift_private_access_);
     c.cost +=
         alley_penalty_ * (edge->use() == baldr::Use::kAlley && pred->use() != baldr::Use::kAlley);
     c.cost += maneuver_penalty_ * (!edge->link() && !edge->name_consistency(idx));
