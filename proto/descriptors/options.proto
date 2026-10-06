@@ -446,6 +446,24 @@ message Costing {
     // (the tile cannot tell them apart after the override). Default false.
     // epifanio/valhalla feat/national-track-default.
     bool avoid_national_default_tracks = 103;
+    // FastGIS fork (tet-recovery WP-4): granular access-ban lifts for the
+    // enhance of a rider's own imported track, at the rider's own risk. Never
+    // sent for route seeking. All three default to false = stock behaviour.
+    // An edge closed to this vehicle (its access mask: an OSM ban such as
+    // motor_vehicle=no, a path or footway, or a country default baked by the
+    // tile builder) is usable when another mode may use it in that direction,
+    // it is not destination_only, and its use is not steps, an elevator, an
+    // escalator, a platform, a ferry, construction or transit. A bridleway (no
+    // modelled mode may use it) counts as open to another mode.
+    bool lift_motor_access_bans = 104;
+    // With lift_motor_access_bans: destination_only edges (access=private and
+    // access=destination) and edges closed to every mode (access=no) are lifted
+    // too. Alone: destination_only edges are no longer limited to the ends of a
+    // route and carry no destination penalty.
+    bool lift_private_access = 105;
+    // Gate nodes (barrier=gate, lift_gate: NodeType kGate) closed to this
+    // vehicle are passable. Fixed bollards and sump busters stay closed.
+    bool lift_node_access_bans = 106;
   }
 
   oneof has_options {
