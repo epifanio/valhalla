@@ -230,3 +230,73 @@ TEST_F(AdventureRidingTest, SpeedFactorDoesNotAffectRoadEdges) {
     EXPECT_EQ(leg_time_sec(cautious_road), t_road);
   }
 }
+
+// Regression for the dangling-reference crash in
+// DynamicCost::AdventureRidingMultiplier / AdventureRidingSpeedMultiplier:
+// they bound `tile->edgeinfo(edge).GetTags()` — a reference into a temporary
+// EdgeInfo — and then searched the freed multimap. Edges with no tagged value
+// got away with it (an empty map); edges carrying ANY tagged value read freed
+// nodes, which segfaulted the in-process iOS engine inside meili's
+// find_shortest_path (trace_route, Norwegian tracks, bias 0). Here every edge
+// carries a `layer` tag (TaggedValue::kLayer) and the trail carries it next to
+// kAdventureRiding, so the multimap is never empty. With libc++ (macOS, iOS)
+// the old code segfaults here and in ZeroMultiplierWinsTrail even in a plain
+// build; with libstdc++ (Linux) it read stale memory and passed by luck, so
+// on Linux these only prove the answers with several tags on an edge.
+class AdventureRidingTaggedEdgesTest : public ::testing::Test {
+protected:
+  static gurka::map ar_map;
+
+  static void SetUpTestSuite() {
+    // Same road-vs-trail choice as AdventureRidingTest; 1 and 2 are shape
+    // points close to the trail for the map-matching (trace) checks.
+    const std::string ascii_map = R"(
+      A--------B
+        1      |
+               |
+           2   |
+               |
+               C
+    )";
+
+    const gurka::ways ways = {
+        {"AB", {{"highway", "primary"}, {"layer", "1"}}},
+        {"BC", {{"highway", "secondary"}, {"layer", "2"}}},
+        {"AC", {{"highway", "track"}, {"source", "TET"}, {"layer", "-1"}}},
+    };
+
+    const auto layout = gurka::detail::map_to_coordinates(ascii_map, 100);
+    ar_map = gurka::buildtiles(layout, ways, {}, {}, "test/data/gurka_adventure_riding_tagged",
+                               {{"mjolnir.concurrency", "1"},
+                                {"mjolnir.adventure_riding_sources.TET", "1"}});
+  }
+};
+
+gurka::map AdventureRidingTaggedEdgesTest::ar_map = {};
+
+TEST_F(AdventureRidingTaggedEdgesTest, RouteWithOtherTagsOnEveryEdge) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    auto road = gurka::do_action(valhalla::Options::route, ar_map, {"A", "C"}, c);
+    gurka::assert::raw::expect_path(road, {"AB", "BC"});
+
+    auto trail = gurka::do_action(
+        valhalla::Options::route, ar_map, {"A", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0"},
+         {"/costing_options/" + c + "/adventure_riding_speed_factor", "0.5"}});
+    gurka::assert::raw::expect_path(trail, {"AC"});
+  }
+}
+
+// The crash path itself: trace_route → meili find_shortest_path → EdgeCost.
+TEST_F(AdventureRidingTaggedEdgesTest, TraceRouteWithOtherTagsOnEveryEdge) {
+  for (const auto& c : kMotorCostings) {
+    SCOPED_TRACE("costing=" + c);
+    auto result = gurka::do_action(
+        valhalla::Options::trace_route, ar_map, {"A", "1", "2", "C"}, c,
+        {{"/costing_options/" + c + "/use_adventure_riding", "0"},
+         {"/costing_options/" + c + "/adventure_riding_speed_factor", "0.5"}},
+        {}, nullptr, "via");
+    gurka::assert::raw::expect_path(result, {"AC"});
+  }
+}
