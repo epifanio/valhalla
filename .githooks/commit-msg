@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Enable once per clone: git config core.hooksPath .githooks
+# 1. Refuse to commit as anyone but the allowed identities.
+# 2. Strip AI attribution lines from the message (tools add them by default).
+set -euo pipefail
+email=$(git var GIT_AUTHOR_IDENT | sed -E 's/.*<([^>]*)>.*/\1/')
+case "$email" in
+  epiesasha@me.com|admin@fastgis.eu) ;;
+  *) echo "commit-msg: author <$email> is not allowed." >&2
+     echo "Run: git config user.name epifanio && git config user.email epiesasha@me.com" >&2
+     exit 1;;
+esac
+tmp=$(mktemp)
+grep -viE '^[[:space:]]*(co-authored-by:.*(anthropic|claude|copilot)|claude-session:)|generated with \[?claude code|claude\.ai/code/session_' "$1" > "$tmp" || true
+# drop trailing blank lines left behind
+awk '{ lines[NR]=$0 } END { n=NR; while (n>0 && lines[n] ~ /^[[:space:]]*$/) n--; for (i=1;i<=n;i++) print lines[i] }' "$tmp" > "$1"
+rm -f "$tmp"
